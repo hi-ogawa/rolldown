@@ -95,6 +95,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/rolldown
 
+  examples/repro-alias:
+    dependencies:
+      test-dep-main:
+        specifier: file:./fixtures/test-dep-main
+        version: file:examples/repro-alias/fixtures/test-dep-main(test-dep-sub@file:examples/repro-alias/fixtures/test-dep-sub)
+      test-dep-sub:
+        specifier: file:./fixtures/test-dep-sub
+        version: file:examples/repro-alias/fixtures/test-dep-sub
+    devDependencies:
+      rolldown:
+        specifier: workspace:*
+        version: link:../../packages/rolldown
+
   examples/rollup-plugin-esbuild:
     dependencies:
       rollup-plugin-esbuild:
@@ -5128,6 +5141,14 @@ packages:
     resolution: {integrity: sha512-pAfYn3NIZLyZpa83ZKigvj6Rn9c/vd5KfYGX7cN1mnzqgDcxWvrU5ZtAfIKhEXz9nRecw4z3LXkjaq96/qZqAA==}
     engines: {node: '>=10'}
     hasBin: true
+
+  test-dep-main@file:examples/repro-alias/fixtures/test-dep-main:
+    resolution: {directory: examples/repro-alias/fixtures/test-dep-main, type: directory}
+    peerDependencies:
+      test-dep-sub: '*'
+
+  test-dep-sub@file:examples/repro-alias/fixtures/test-dep-sub:
+    resolution: {directory: examples/repro-alias/fixtures/test-dep-sub, type: directory}
 
   through2@4.0.2:
     resolution: {integrity: sha512-iOqSav00cVxEEICeD7TjLB1sueEL+81Wpzp2bY17uZjZN0pWZPuo4suZ/61VujxmqSGFfgOcNuTZ85QJwNZQpw==}
@@ -10304,6 +10325,12 @@ snapshots:
       acorn: 8.12.1
       commander: 2.20.3
       source-map-support: 0.5.21
+
+  test-dep-main@file:examples/repro-alias/fixtures/test-dep-main(test-dep-sub@file:examples/repro-alias/fixtures/test-dep-sub):
+    dependencies:
+      test-dep-sub: file:examples/repro-alias/fixtures/test-dep-sub
+
+  test-dep-sub@file:examples/repro-alias/fixtures/test-dep-sub: {}
 
   through2@4.0.2:
     dependencies:
