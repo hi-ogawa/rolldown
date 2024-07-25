@@ -1,7 +1,4 @@
 import * as rolldown from "rolldown";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
 
 async function main() {
   const bundle = await rolldown.rolldown({
@@ -13,8 +10,8 @@ async function main() {
     ],
     resolve: {
       alias: {
-        "foo": "test-dep-main",
-      },
+        "foo": "test-dep-main"
+      }
     }
   });
   await bundle.write({
