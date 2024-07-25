@@ -2147,6 +2147,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcstr",
+ "async-trait",
  "bitflags 2.6.0",
  "daachorse",
  "dunce",
@@ -2155,8 +2156,6 @@ dependencies = [
  "indexmap",
  "insta",
  "itertools 0.13.0",
- "mime",
- "once_cell",
  "oxc",
  "regex",
  "rolldown_common",
@@ -2177,7 +2176,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-chrome",
- "urlencoding",
  "xxhash-rust",
 ]
 
@@ -2195,7 +2193,6 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "once_cell",
  "oxc_transform_napi",
  "rolldown",
  "rolldown_common",
@@ -2357,7 +2354,6 @@ dependencies = [
  "dunce",
  "insta",
  "jsonschema",
- "once_cell",
  "regex",
  "rolldown",
  "rolldown_common",
@@ -2399,7 +2395,6 @@ dependencies = [
  "infer",
  "mime",
  "mime_guess",
- "once_cell",
  "oxc",
  "rayon",
  "regex",
@@ -2965,12 +2960,6 @@ dependencies = [
  "idna",
  "percent-encoding",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "uuid"
