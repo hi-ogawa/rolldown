@@ -1,11 +1,5 @@
 {
   "name": "test-dep-sub",
   "private": true,
-  "type": "module",
-  "exports": {
-    ".": {
-      "require": "./index.cjs",
-      "import": "./index.js"
-    }
-  }
+  "exports": "./index.cjs"
 }

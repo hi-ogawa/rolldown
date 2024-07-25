@@ -14,8 +14,6 @@ async function main() {
     resolve: {
       alias: {
         "foo": "test-dep-main",
-        // alias to test-dep-sub/index.cjs
-        "test-dep-sub": require.resolve("test-dep-sub"),
       },
     }
   });
