@@ -1,16 +1,17 @@
 import * as rolldown from "rolldown";
+import path from "node:path";
 
 async function main() {
   const bundle = await rolldown.rolldown({
     cwd: import.meta.dirname,
     // works if single entry (each one works alone)
     input: [
-      "test-dep-main",
+      "./src/main.js",
       "foo",
     ],
     resolve: {
       alias: {
-        "foo": "test-dep-main"
+        "foo": path.join(import.meta.dirname, "./src/main.js")
       }
     }
   });

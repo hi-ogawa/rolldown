@@ -1,15 +1,11 @@
 {
-  "name": "@example/basic",
+  "name": "@example/repro-alias",
   "private": true,
   "type": "module",
   "scripts": {
-    "repro": "node index.js"
   },
   "devDependencies": {
     "rolldown": "workspace:*"
   },
-  "dependencies": {
-    "test-dep-main": "file:./fixtures/test-dep-main",
-    "test-dep-sub": "file:./fixtures/test-dep-sub"
-  }
+  "dependencies": {}
 }

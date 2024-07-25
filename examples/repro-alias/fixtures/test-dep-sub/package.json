@@ -1,5 +1,0 @@
-{
-  "name": "test-dep-sub",
-  "private": true,
-  "exports": "./index.cjs"
-}
