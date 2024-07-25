@@ -1,0 +1,15 @@
+{
+  "name": "@example/basic",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "repro": "node index.js"
+  },
+  "devDependencies": {
+    "rolldown": "workspace:*"
+  },
+  "dependencies": {
+    "vue": "^3.4.31",
+    "@vue/shared": "^3.4.31"
+  }
+}

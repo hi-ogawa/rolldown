@@ -82,6 +82,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/rolldown
 
+  examples/repro:
+    dependencies:
+      '@vue/shared':
+        specifier: ^3.4.31
+        version: 3.4.33
+      vue:
+        specifier: ^3.4.31
+        version: 3.4.33(typescript@5.5.3)
+    devDependencies:
+      rolldown:
+        specifier: workspace:*
+        version: link:../../packages/rolldown
+
   examples/rollup-plugin-esbuild:
     dependencies:
       rollup-plugin-esbuild:
