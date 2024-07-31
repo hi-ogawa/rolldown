@@ -1,0 +1,29 @@
+---
+source: crates/rolldown_testing/src/integration_test.rs
+assertion_line: 262
+expression: snapshot
+input_file: crates/rolldown/tests/fixtures/issues/repro
+---
+# Assets
+
+## main.mjs
+
+```js
+
+
+//#region foo.cjs
+var require_foo = __commonJSMin((exports, module) => {
+	const fs = require("node:fs");
+	module.exports.test = () => {
+		console.log(fs);
+	};
+});
+
+//#endregion
+//#region main.js
+var import_foo = __toESM(require_foo());
+var main_default = import_foo.default;
+
+//#endregion
+export { main_default as default };
+```
