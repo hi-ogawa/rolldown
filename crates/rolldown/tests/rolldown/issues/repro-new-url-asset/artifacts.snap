@@ -1,0 +1,15 @@
+---
+source: crates/rolldown_testing/src/integration_test.rs
+---
+# Assets
+
+## entry.mjs
+
+```js
+
+//#region entry.js
+const image = new URL("./image.svg", import.meta.url).href;
+
+//#endregion
+export { image };
+```
