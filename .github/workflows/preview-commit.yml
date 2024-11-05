@@ -3,58 +3,50 @@ name: Preview Commit
 
 on:
   push:
-    branches: [main]
   pull_request:
-    types: [opened, synchronize]
 
 jobs:
+  build:
+    name: Build bindings and node packages
+    uses: ./.github/workflows/reusable-release-build.yml
+
   publish:
+    # if: github.repository == 'rolldown/rolldown'
     name: Pkg Preview
     runs-on: ubuntu-latest
+    needs:
+      - build
     steps:
-      - run: echo debug
+      - uses: actions/checkout@v4
 
-  # build:
-  #   name: Build bindings and node packages
-  #   uses: ./.github/workflows/reusable-release-build.yml
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
-  # publish:
-  #   # if: github.repository == 'rolldown/rolldown'
-  #   name: Pkg Preview
-  #   runs-on: ubuntu-latest
-  #   needs:
-  #     - build
-  #   steps:
-  #     - uses: actions/checkout@v4
+      - name: Git Reset Hard
+        run: git reset --hard # fix pnpm install add new line for package.json
 
-  #     - name: Setup Node
-  #       uses: ./.github/actions/setup-node
+      - name: Download Binding Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/rolldown/artifacts
 
-  #     - name: Git Reset Hard
-  #       run: git reset --hard # fix pnpm install add new line for package.json
+      - name: Move Binding Artifacts
+        run: pnpm --filter rolldown artifacts
 
-  #     - name: Download Binding Artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: packages/rolldown/artifacts
+      - name: List Rolldown Bindings
+        run: ls -R ./packages/rolldown/npm
+        shell: bash
 
-  #     - name: Move Binding Artifacts
-  #       run: pnpm --filter rolldown artifacts
+      - name: Download Node Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/rolldown/dist
+          name: node-artifact
 
-  #     - name: List Rolldown Bindings
-  #       run: ls -R ./packages/rolldown/npm
-  #       shell: bash
+      - name: Copy Licenses
+        run: |
+          find ./packages/ -type d -maxdepth 1 -exec cp LICENSE {} \;
+          find ./packages/ -type d -maxdepth 1 -exec cp THIRD-PARTY-LICENSE {} \;
 
-  #     - name: Download Node Artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: packages/rolldown/dist
-  #         name: node-artifact
-
-  #     - name: Copy Licenses
-  #       run: |
-  #         find ./packages/ -type d -maxdepth 1 -exec cp LICENSE {} \;
-  #         find ./packages/ -type d -maxdepth 1 -exec cp THIRD-PARTY-LICENSE {} \;
-
-  #     - name: Release
-  #       run: pnpx pkg-pr-new publish --compact --pnpm './packages/rolldown/npm/*' './packages/rolldown'
+      - name: Release
+        run: pnpx pkg-pr-new publish --compact --pnpm './packages/rolldown/npm/*' './packages/rolldown'
