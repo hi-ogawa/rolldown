@@ -9,15 +9,19 @@ snapshot_kind: text
 ```js
 
 
-//#region dep.js
-var dep_exports = {};
-__export(dep_exports, { require: () => require$1 });
-const require$1 = "test";
+//#region deconflict.js
+var deconflict_exports = {};
+__export(deconflict_exports, {
+	__nodeModule: () => __nodeModule,
+	require: () => require$1
+});
+const require$1 = "should deconflict";
+const __nodeModule = "should deconflict";
 
 //#endregion
 //#region main.js
 var main_default = () => __require("node:util");
 
 //#endregion
-export { main_default as default, dep_exports as dep };
+export { main_default as default, deconflict_exports as depDeconflict };
 ```

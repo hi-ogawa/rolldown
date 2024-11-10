@@ -3,18 +3,18 @@
 use oxc::{
   allocator::{self, IntoIn},
   ast::{
-    ast::{self, Expression, SimpleAssignmentTarget, VariableDeclarationKind},
+    ast::{self, Expression, ImportOrExportKind, SimpleAssignmentTarget, VariableDeclarationKind},
     visit::walk_mut,
     VisitMut, NONE,
   },
   span::{GetSpan, Span, SPAN},
 };
 use rolldown_common::{
-  ExportsKind, ImportRecordMeta, Module, ModuleType, StmtInfoIdx, SymbolRef, WrapKind,
+  ExportsKind, ImportRecordMeta, Module, ModuleId, ModuleType, StmtInfoIdx, SymbolRef, WrapKind,
 };
 use rolldown_ecmascript_utils::{AllocatorExt, ExpressionExt, StatementExt, TakeIn};
 
-use crate::utils::call_expression_ext::CallExpressionExt;
+use crate::{runtime::RUNTIME_MODULE_ID, utils::call_expression_ext::CallExpressionExt};
 
 use super::ScopeHoistingFinalizer;
 
@@ -361,6 +361,48 @@ impl<'me, 'ast> VisitMut<'ast> for ScopeHoistingFinalizer<'me, 'ast> {
         _ => {}
       }
     }
+
+    // TODO: isn't it too hacky..?
+    // replace `var __nodeModule` with `import __nodeModule from "node:module"`
+    if self.ctx.module.id == ModuleId::new(RUNTIME_MODULE_ID) {
+      if let ast::Statement::VariableDeclaration(decl) = it {
+        if decl.declarations.len() == 1 {
+          if let Some(id) = decl.declarations[0].id.get_binding_identifier() {
+            if id.name == "__nodeModule" {
+              dbg!(&decl);
+              // self.canonical_name_for_runtime("__nodeModule");
+              // self.snippet.builder.alloc_binding_identifier(
+              //   SPAN,
+              //   self.canonical_name_for_runtime("__nodeModule").as_str(),
+              // );
+              // self.snippet.builder.alloc_binding_identifier_with_symbol_id(SPAN, name, symbol_id)
+              *it =
+                ast::Statement::ImportDeclaration(self.snippet.builder.alloc_import_declaration(
+                  SPAN,
+                  Some(self.snippet.builder.vec1(
+                    ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(
+                      self.snippet.builder.alloc_import_default_specifier(
+                        SPAN,
+                        // id.clone()
+                        self.snippet.builder.binding_identifier(
+                          SPAN,
+                          self.canonical_name_for_runtime("__nodeModule").as_str(),
+                        ),
+                      ),
+                    ),
+                  )),
+                  self.snippet.builder.string_literal(SPAN, "node:module"),
+                  NONE,
+                  ImportOrExportKind::Value,
+                ));
+              dbg!(&it);
+              return;
+            }
+          }
+        }
+      };
+    }
+
     walk_mut::walk_statement(self, it);
   }
 

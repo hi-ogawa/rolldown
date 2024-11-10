@@ -4,7 +4,8 @@ use append_only_vec::AppendOnlyVec;
 use oxc::index::IndexVec;
 use rolldown_common::{
   EntryPoint, ExportsKind, ImportKind, ImportRecordIdx, ImportRecordMeta, Module, ModuleIdx,
-  ModuleTable, OutputFormat, ResolvedImportRecord, StmtInfo, SymbolRef, SymbolRefDb, WrapKind,
+  ModuleTable, OutputFormat, Platform, ResolvedImportRecord, StmtInfo, SymbolRef, SymbolRefDb,
+  WrapKind,
 };
 use rolldown_error::BuildDiagnostic;
 use rolldown_utils::{
@@ -295,6 +296,11 @@ impl<'a> LinkStage<'a> {
             {
               if self.options.format.should_call_runtime_require() {
                 stmt_info.referenced_symbols.push(self.runtime.resolve_symbol("__require").into());
+                // if matches!(self.options.platform, Platform::Node) {
+                //   stmt_info
+                //     .referenced_symbols
+                //     .push(self.runtime.resolve_symbol("__nodeModule").into());
+                // }
                 record_meta_pairs.push((*rec_id, ImportRecordMeta::CALL_RUNTIME_REQUIRE));
               }
             }

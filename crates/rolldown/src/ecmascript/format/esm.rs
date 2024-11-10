@@ -1,10 +1,13 @@
 use arcstr::ArcStr;
 use itertools::Itertools;
-use rolldown_common::{ChunkKind, ExportsKind, ImportRecordMeta, Module, Platform, WrapKind};
+use rolldown_common::{
+  ChunkKind, ExportsKind, ImportRecordMeta, Module, ModuleId, Platform, WrapKind,
+};
 use rolldown_sourcemap::SourceJoiner;
 
 use crate::{
   ecmascript::ecma_generator::RenderedModuleSources,
+  runtime::RUNTIME_MODULE_ID,
   types::generator::GenerateContext,
   utils::chunk::{
     collect_render_chunk_imports::{
@@ -39,19 +42,36 @@ pub fn render_esm<'code>(
 
   if matches!(ctx.options.platform, Platform::Node) {
     // TODO: should do it together during compute_cross_chunk_links/collect_depended_symbols?
-    let has_external_require = ctx.chunk.modules.iter().copied().any(|module_id| {
+    // let has_external_require = ctx.chunk.modules.iter().copied().any(|module_id| {
+    //   if let Module::Normal(module) = &ctx.link_output.module_table.modules[module_id] {
+    //     module
+    //       .import_records
+    //       .iter()
+    //       .any(|rec| rec.meta.contains(ImportRecordMeta::CALL_RUNTIME_REQUIRE))
+    //   } else {
+    //     false
+    //   }
+    // });
+    // // TODO: should be injected only inside a chunk with rolldown:runtime
+    // // self.canonical_name_for_runtime("__require").as_str()
+    // if has_external_require {
+    //   // TODO: should avoid top-level-await for whatever down stream usage?
+    //   // source_joiner.append_source("const require = await import('node:module').then((m) => m.default.createRequire(import.meta.url));\n");
+
+    //   // TODO: deconflict `__nodeModule` but `require` should work like global?
+    //   // source_joiner.append_source("import __nodeModule from 'node:module';\nvar require = __nodeModule.createRequire(import.meta.url);\n");
+    // }
+
+    let is_runtime_chunk = ctx.chunk.modules.iter().copied().any(|module_id| {
       if let Module::Normal(module) = &ctx.link_output.module_table.modules[module_id] {
-        module
-          .import_records
-          .iter()
-          .any(|rec| rec.meta.contains(ImportRecordMeta::CALL_RUNTIME_REQUIRE))
+        module.id == ModuleId::new(RUNTIME_MODULE_ID)
       } else {
         false
       }
     });
-    if has_external_require {
-      // TODO: deconflict `__nodeModule` but `require` should work like global?
-      // source_joiner.append_source("import __nodeModule from 'node:module';\nvar require = __nodeModule.createRequire(import.meta.url);\n");
+    if is_runtime_chunk {
+      // TODO: should avoid top-level-await for whatever down stream usage?
+      // source_joiner.append_source("const require = await import('node:module').then((m) => m.default.createRequire(import.meta.url));\n");
     }
   }
 

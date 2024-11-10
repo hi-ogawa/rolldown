@@ -55,9 +55,22 @@ export var __toBinary = /* @__PURE__ */ (() => {
     return bytes
   }
 })()
+// TODO: inject to runtime module somehow on the fly? but when? scope hoisting module finalizer?
+// TODO: or final render?
+// TODO: what if
 var __nodeModule;
-var require = __nodeModule.createRequire(import.meta.url);
+// var __nodeModuleRequire = () => __nodeModule.createRequire(import.meta.url)
+// transform into
+
+// import __nodeModule from "node:module";
+// var __require = __nodeModule.createRequire(import.meta.url);
+
+// but define empty variable here to have effect on deconflict
+// var __nodeModule;
+// var __nodeModule;
+// var require = __nodeModule.createRequire(import.meta.url);
 var __require = /* @__PURE__ */ (x =>
+  typeof __nodeModule !== 'undefined' ? __nodeModule.createRequire(import.meta.url) :
   typeof require !== 'undefined' ? require :
     typeof Proxy !== 'undefined' ? new Proxy(x, {
       get: (a, b) => (typeof require !== 'undefined' ? require : a)[b]
