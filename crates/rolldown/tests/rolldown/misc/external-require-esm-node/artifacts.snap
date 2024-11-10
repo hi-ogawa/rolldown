@@ -1,0 +1,23 @@
+---
+source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
+---
+# Assets
+
+## main.js
+
+```js
+
+
+//#region dep.js
+var dep_exports = {};
+__export(dep_exports, { require: () => require$1 });
+const require$1 = "test";
+
+//#endregion
+//#region main.js
+var main_default = () => __require("node:util");
+
+//#endregion
+export { main_default as default, dep_exports as dep };
+```

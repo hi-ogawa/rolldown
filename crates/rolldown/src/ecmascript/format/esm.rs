@@ -1,6 +1,6 @@
 use arcstr::ArcStr;
 use itertools::Itertools;
-use rolldown_common::{ChunkKind, ExportsKind, Module, WrapKind};
+use rolldown_common::{ChunkKind, ExportsKind, ImportRecordMeta, Module, Platform, WrapKind};
 use rolldown_sourcemap::SourceJoiner;
 
 use crate::{
@@ -35,6 +35,24 @@ pub fn render_esm<'code>(
 
   if let Some(intro) = intro {
     source_joiner.append_source(intro);
+  }
+
+  if matches!(ctx.options.platform, Platform::Node) {
+    // TODO: should do it together during compute_cross_chunk_links/collect_depended_symbols?
+    let has_external_require = ctx.chunk.modules.iter().copied().any(|module_id| {
+      if let Module::Normal(module) = &ctx.link_output.module_table.modules[module_id] {
+        module
+          .import_records
+          .iter()
+          .any(|rec| rec.meta.contains(ImportRecordMeta::CALL_RUNTIME_REQUIRE))
+      } else {
+        false
+      }
+    });
+    if has_external_require {
+      // TODO: deconflict `__nodeModule` but `require` should work like global?
+      // source_joiner.append_source("import __nodeModule from 'node:module';\nvar require = __nodeModule.createRequire(import.meta.url);\n");
+    }
   }
 
   source_joiner.append_source(render_esm_chunk_imports(ctx));

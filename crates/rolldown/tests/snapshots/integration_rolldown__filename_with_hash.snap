@@ -4499,11 +4499,11 @@ snapshot_kind: text
 
 # tests/rolldown/function/platform/node/should_not_throw_warnings_for_import_builtin_modules/basic
 
-- main-!~{000}~.js => main-CbSuSMJE.js
+- main-!~{000}~.js => main-DpHzowPG.js
 
 # tests/rolldown/function/resolve/alias_to_node_builtin_module
 
-- main-!~{000}~.js => main-B0X2-Gko.js
+- main-!~{000}~.js => main-Bkbt2ALg.js
 
 # tests/rolldown/function/resolve/browser_filed_false
 
@@ -4655,6 +4655,10 @@ snapshot_kind: text
 - main-!~{000}~.js => main-CRV3-AEX.js
 - main2-!~{001}~.js => main2-PPttf03-.js
 - main-!~{002}~.js => main-BPFjsudI.js
+
+# tests/rolldown/misc/external-require-esm-node
+
+- main-!~{000}~.js => main-B5SViy0y.js
 
 # tests/rolldown/misc/footer/cjs
 

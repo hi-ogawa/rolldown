@@ -43,6 +43,7 @@ impl RuntimeModuleTask {
 
   #[tracing::instrument(name = "RuntimeNormalModuleTaskResult::run", level = "debug", skip_all)]
   pub fn run(mut self) -> anyhow::Result<()> {
+    // TODO: we should just patch it? when format = esm and platform = node?
     let source: ArcStr = arcstr::literal!(include_str!("../runtime/runtime-without-comments.js"));
 
     let ecma_ast_result = self.make_ecma_ast(RUNTIME_MODULE_ID, &source);

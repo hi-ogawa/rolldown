@@ -55,6 +55,8 @@ export var __toBinary = /* @__PURE__ */ (() => {
     return bytes
   }
 })()
+var __nodeModule;
+var require = __nodeModule.createRequire(import.meta.url);
 var __require = /* @__PURE__ */ (x =>
   typeof require !== 'undefined' ? require :
     typeof Proxy !== 'undefined' ? new Proxy(x, {

@@ -7,6 +7,9 @@ snapshot_kind: text
 ## main.js
 
 ```js
+import __nodeModule from 'node:module';
+var require = __nodeModule.createRequire(import.meta.url);
+
 import * as fs from "fs";
 import * as nodeFs from "node:fs";
 
