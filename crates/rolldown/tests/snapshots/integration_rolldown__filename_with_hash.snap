@@ -4245,6 +4245,11 @@ snapshot_kind: text
 
 - main-!~{000}~.js => main-0yHXnpiT.js
 
+# tests/rolldown/function/format/app/sourcemap-imported
+
+- main-!~{000}~.js => main-JnekHFC_.js
+- main-JnekHFC_.js.map
+
 # tests/rolldown/function/format/cjs/conflict_exports_key
 
 - main-!~{000}~.js => main-SbP1HPQT.js

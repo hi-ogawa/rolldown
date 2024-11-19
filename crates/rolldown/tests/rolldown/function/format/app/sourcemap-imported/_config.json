@@ -1,0 +1,7 @@
+{
+  "expectExecuted": false,
+  "visualizeSourcemap": true,
+  "config": {
+    "format": "app"
+  }
+}

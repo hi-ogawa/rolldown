@@ -1,0 +1,63 @@
+---
+source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
+---
+# Assets
+
+## main.js
+
+```js
+
+rolldown_runtime.define('error.js',function(require, module, exports){
+
+//#region error.js
+__toCommonJS(exports);
+__export(exports, { throwError: () => throwError });
+function throwError() {
+	console.trace("foo");
+};
+
+//#endregion
+});
+rolldown_runtime.define('main.js',function(require, module, exports){
+
+//#region main.js
+__toCommonJS(exports);
+var error_exports = require("error.js");
+function main() {
+	error_exports.throwError();
+}
+main();
+
+//#endregion
+});
+rolldown_runtime.require('main.js');
+//# sourceMappingURL=main.js.map
+```
+
+# Sourcemap Visualizer
+
+```
+- ../error.js
+(0:0-0:7) "export " --> (193:0-195:0) "\n__toCommonJS(exports);\n__export(exports, { throwError: () => throwError });"
+(0:7-0:16) "function " --> (195:0-195:9) "\nfunction"
+(0:16-0:29) "throwError() " --> (195:9-195:22) " throwError()"
+(0:29-1:2) "{\n " --> (195:22-196:0) " {"
+(1:2-1:10) " console" --> (196:0-196:9) "\n\tconsole"
+(1:10-1:16) ".trace" --> (196:9-196:15) ".trace"
+(1:16-1:22) "('foo'" --> (196:15-196:21) "(\"foo\""
+(1:22-2:1) ")\n" --> (196:21-197:0) ");"
+(2:1-3:1) "}\n" --> (197:0-204:0) "\n};\n\n//#endregion\n});\nrolldown_runtime.define('main.js',function(require, module, exports){\n\n//#region main.js"
+- ../main.js
+(0:0-2:0) "import { throwError } from \"./error.js\"\n" --> (204:0-206:0) "\n__toCommonJS(exports);\nvar error_exports = require(\"error.js\");"
+(2:0-2:9) "\nfunction" --> (206:0-206:9) "\nfunction"
+(2:9-2:16) " main()" --> (206:9-206:16) " main()"
+(2:16-3:2) " {\n " --> (206:16-207:0) " {"
+(3:2-0:0) "" --> (207:0-207:1) "\n"
+(0:0-3:2) "import { throwError } from \"./error.js\"\n\nfunction main() {\n " --> (207:1-207:15) "\terror_exports"
+(3:2-3:14) " throwError(" --> (207:15-207:27) ".throwError("
+(3:14-4:1) ");\n" --> (207:27-208:0) ");"
+(4:1-6:0) "}\n" --> (208:0-209:0) "\n}"
+(6:0-6:6) "\nmain(" --> (209:0-209:6) "\nmain("
+(6:6-7:1) ")\n" --> (209:6-214:33) ");\n\n//#endregion\n});\nrolldown_runtime.require('main.js');\n//# sourceMappingURL=main.js.map"
+```
