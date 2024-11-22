@@ -31,7 +31,11 @@ node_assert.default.equal(require("url").pathToFileURL(__filename), require("url
 (2:27) "." --> (27:40) "."
 (2:28) "pathToFileURL(" --> (27:41) "pathToFileURL("
 (2:42) "__filename)" --> (27:55) "__filename)"
-(2:53) ", import.meta.url)" --> (27:66) ", "
-(0:0) "import assert from 'node:assert';\n" --> (27:68) "require(\"url\").pathToFileURL(__filename).href)"
+(2:53) ", " --> (27:66) ", "
+(2:55) "import.meta.url" --> (27:68) "require(\"url\")"
+(2:70) ")" --> (27:82) "."
+(2:55) "import.meta.url" --> (27:83) "pathToFileURL(__filename)"
+(2:70) ")" --> (27:108) "."
+(2:55) "import.meta.url)" --> (27:109) "href)"
 (2:71) "" --> (27:114) ";\n"
 ```

@@ -363,7 +363,7 @@ impl<'me, 'ast> ScopeHoistingFinalizer<'me, 'ast> {
     member_expr: &ast::StaticMemberExpression<'ast>,
   ) -> Option<Expression<'ast>> {
     if member_expr.object.is_import_meta() {
-      let original_expr_span = member_expr.span;
+      let span = member_expr.span;
       match member_expr.property.name.as_str() {
         // Try to polyfill `import.meta.url`
         "url" => {
@@ -373,30 +373,30 @@ impl<'me, 'ast> ScopeHoistingFinalizer<'me, 'ast> {
 
               // require('url')
               let require_call = self.snippet.builder.alloc_call_expression(
-                SPAN,
-                self.snippet.builder.expression_identifier_reference(SPAN, "require"),
+                span,
+                self.snippet.builder.expression_identifier_reference(span, "require"),
                 oxc::ast::NONE,
                 self.snippet.builder.vec1(ast::Argument::StringLiteral(
-                  self.snippet.builder.alloc_string_literal(SPAN, "url"),
+                  self.snippet.builder.alloc_string_literal(span, "url"),
                 )),
                 false,
               );
 
               // require('url').pathToFileURL
               let require_path_to_file_url = self.snippet.builder.alloc_static_member_expression(
-                SPAN,
+                span,
                 ast::Expression::CallExpression(require_call),
-                self.snippet.builder.identifier_name(SPAN, "pathToFileURL"),
+                self.snippet.builder.identifier_name(span, "pathToFileURL"),
                 false,
               );
 
               // require('url').pathToFileURL(__filename)
               let require_path_to_file_url_call = self.snippet.builder.alloc_call_expression(
-                SPAN,
+                span,
                 ast::Expression::StaticMemberExpression(require_path_to_file_url),
                 oxc::ast::NONE,
                 self.snippet.builder.vec1(ast::Argument::Identifier(
-                  self.snippet.builder.alloc_identifier_reference(SPAN, "__filename"),
+                  self.snippet.builder.alloc_identifier_reference(span, "__filename"),
                 )),
                 false,
               );
@@ -404,9 +404,9 @@ impl<'me, 'ast> ScopeHoistingFinalizer<'me, 'ast> {
               // require('url').pathToFileURL(__filename).href
               let require_path_to_file_url_href =
                 self.snippet.builder.alloc_static_member_expression(
-                  original_expr_span,
+                  span,
                   ast::Expression::CallExpression(require_path_to_file_url_call),
-                  self.snippet.builder.identifier_name(SPAN, "href"),
+                  self.snippet.builder.identifier_name(span, "href"),
                   false,
                 );
               Some(ast::Expression::StaticMemberExpression(require_path_to_file_url_href))
