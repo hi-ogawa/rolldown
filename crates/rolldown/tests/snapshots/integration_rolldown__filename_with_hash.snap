@@ -4119,41 +4119,41 @@ snapshot_kind: text
 
 # tests/rolldown/function/format/app/export-all
 
-- main-!~{000}~.js => main-9KEdcs9H.js
+- main-!~{000}~.js => main-BMwABcYX.js
 
 # tests/rolldown/function/format/app/export-default-class
 
-- main-!~{000}~.js => main-CZBSgOGX.js
+- main-!~{000}~.js => main-DbA-rHpP.js
 
 # tests/rolldown/function/format/app/export-default-expr
 
-- main-!~{000}~.js => main-Bg89G-QG.js
+- main-!~{000}~.js => main-CyIamOqM.js
 
 # tests/rolldown/function/format/app/export-default-fn
 
-- main-!~{000}~.js => main-BFRSrmp2.js
+- main-!~{000}~.js => main-BBeOrBrO.js
 
 # tests/rolldown/function/format/app/export-named
 
-- main-!~{000}~.js => main-Dp7zzqIV.js
+- main-!~{000}~.js => main-sO7gUALB.js
 
 # tests/rolldown/function/format/app/export-named-from
 
-- main-!~{000}~.js => main-ISe6FE7u.js
+- main-!~{000}~.js => main-CUjHdWgI.js
 
 # tests/rolldown/function/format/app/import
 
-- main-!~{000}~.js => main-D0a1t4em.js
+- main-!~{000}~.js => main-sxanexZN.js
 
 # tests/rolldown/function/format/app/multiple_entry_modules
 
-- main-!~{000}~.js => main-C5d1U_Ds.js
+- main-!~{000}~.js => main-Cb6jmrP1.js
 - other-entry-!~{001}~.js => other-entry-T_JRzpsq.js
 - cube-!~{002}~.js => cube-Bw_9eJbQ.js
 
 # tests/rolldown/function/format/app/require
 
-- main-!~{000}~.js => main-BmvZgGzS.js
+- main-!~{000}~.js => main-B412eFym.js
 
 # tests/rolldown/function/format/cjs/conflict_exports_key
 
@@ -4285,6 +4285,22 @@ snapshot_kind: text
 # tests/rolldown/function/module_types/base64/text
 
 - main-!~{000}~.js => main-4lUhS0ge.js
+
+# tests/rolldown/function/module_types/binary/binary
+
+- main-!~{000}~.js => main-CmDmY90m.js
+
+# tests/rolldown/function/module_types/binary/empty
+
+- main-!~{000}~.js => main-BgsDU5VN.js
+
+# tests/rolldown/function/module_types/binary/node
+
+- main-!~{000}~.js => main-D7ClqlDG.js
+
+# tests/rolldown/function/module_types/binary/text
+
+- main-!~{000}~.js => main-CIxS1K5q.js
 
 # tests/rolldown/function/module_types/dataurl/binary
 

@@ -3,6 +3,5 @@
     "moduleTypes": {
       ".webp": "binary"
     }
-  },
-  "expectError": true
+  }
 }
