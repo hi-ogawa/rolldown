@@ -43,7 +43,12 @@ impl RuntimeModuleTask {
 
   #[tracing::instrument(name = "RuntimeNormalModuleTaskResult::run", level = "debug", skip_all)]
   pub fn run(mut self) -> anyhow::Result<()> {
-    let source = if self.options.is_esm_format_with_node_platform() {
+    let source = if matches!(self.options.format, rolldown_common::OutputFormat::App) {
+      arcstr::literal!(concat!(
+        include_str!("../runtime/runtime-base.js"),
+        include_str!("../runtime/runtime-app.js"),
+      ))
+    } else if self.options.is_esm_format_with_node_platform() {
       arcstr::literal!(concat!(
         include_str!("../runtime/runtime-head-node.js"),
         include_str!("../runtime/runtime-base.js"),
