@@ -26,7 +26,7 @@ pub fn render_app<'code>(
   }
 
   // chunk content
-  module_sources.into_iter().for_each(|(module_idx, _, module_render_output)| {
+  module_sources.iter().for_each(|(module_idx, _, module_render_output)| {
     if let Some(emitted_sources) = module_render_output {
       let is_runtime = ctx.link_output.runtime.id() == *module_idx;
       if !is_runtime {

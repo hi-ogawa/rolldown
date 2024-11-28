@@ -154,6 +154,7 @@ async function bundleInner(
         if (virtualFile) {
           res.end(virtualFile)
         } else {
+          // eslint-disable-next-line
           console.log(req.url + 'not found')
           next()
         }

@@ -204,7 +204,7 @@ export type BindingBuiltinPluginName =  'builtin:wasm-helper'|
 'builtin:json'|
 'builtin:build-import-analysis'|
 'builtin:replace'|
-'builtin:react-plugin'|
+'builtin:react'|
 'builtin:vite-resolve';
 
 export interface BindingEmittedAsset {

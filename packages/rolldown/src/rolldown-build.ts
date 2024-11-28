@@ -1,4 +1,7 @@
-import { transformToRollupOutput } from './utils/transform-to-rollup-output'
+import {
+  handleOutputErrors,
+  transformToRollupOutput,
+} from './utils/transform-to-rollup-output'
 import { BundlerWithStopWorker, createBundler } from './utils/create-bundler'
 
 import type { InputOptions } from './options/input-options'
@@ -52,7 +55,9 @@ export class RolldownBuild {
   async experimental_hmr_rebuild(
     changedFiles: string[],
   ): Promise<[string, AssetSource]> {
-    const { assets } = await this.#bundler!.bundler.hmrRebuild(changedFiles)
+    const output = await this.#bundler!.bundler.hmrRebuild(changedFiles)
+    handleOutputErrors(output)
+    const { assets } = output
     return [assets[0].fileName, transformAssetSource(assets[0].source)]
   }
 
