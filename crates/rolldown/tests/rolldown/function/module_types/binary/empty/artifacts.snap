@@ -16,20 +16,3 @@ snapshot_kind: text
 ───╯
 
 ```
-
-# Assets
-
-## main.js
-
-```js
-import assert from "node:assert";
-
-//#region example.data
-var example_default = __toBinary("");
-
-//#endregion
-//#region main.js
-assert(example_default instanceof Uint8Array);
-
-//#endregion
-```
