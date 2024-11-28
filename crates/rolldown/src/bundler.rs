@@ -4,20 +4,30 @@ use super::stages::{
 };
 use crate::{
   bundler_builder::BundlerBuilder,
-  stages::{generate_stage::GenerateStage, scan_stage::ScanStage},
+  module_loader::hmr_module_loader::HmrModuleLoader,
+  stages::{
+    generate_stage::{render_hmr_chunk::render_hmr_chunk, GenerateStage},
+    scan_stage::ScanStage,
+  },
+  type_alias::IndexEcmaAst,
   types::bundle_output::BundleOutput,
   watcher::watcher::{wait_for_change, Watcher},
   BundlerOptions, SharedOptions, SharedResolver,
 };
 use anyhow::Result;
+use arcstr::ArcStr;
 
-use rolldown_common::{NormalizedBundlerOptions, SharedFileEmitter};
+use rolldown_common::{
+  ModuleIdx, ModuleTable, NormalizedBundlerOptions, SharedFileEmitter, SymbolRefDb,
+};
+
 use rolldown_error::{BuildDiagnostic, BuildResult};
 use rolldown_fs::{FileSystem, OsFileSystem};
 use rolldown_plugin::{
   HookBuildEndArgs, HookRenderErrorArgs, SharedPluginDriver, __inner::SharedPluginable,
 };
 use rolldown_std_utils::OptionExt;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_chrome::FlushGuard;
@@ -31,6 +41,10 @@ pub struct Bundler {
   pub(crate) plugin_driver: SharedPluginDriver,
   pub(crate) warnings: Vec<BuildDiagnostic>,
   pub(crate) _log_guard: Option<FlushGuard>,
+  pub(crate) previous_module_table: ModuleTable,
+  pub(crate) previous_module_id_to_modules: FxHashMap<ArcStr, ModuleIdx>,
+  pub(crate) pervious_index_ecma_ast: IndexEcmaAst,
+  pub(crate) pervious_symbols: SymbolRefDb,
 }
 
 impl Bundler {
@@ -46,26 +60,9 @@ impl Bundler {
 impl Bundler {
   #[tracing::instrument(level = "debug", skip_all)]
   pub async fn write(&mut self) -> BuildResult<BundleOutput> {
-    let dir = self.options.cwd.join(&self.options.dir);
-
     let mut output = self.bundle_up(/* is_write */ true).await?;
 
-    self.fs.create_dir_all(&dir).map_err(|err| {
-      anyhow::anyhow!("Could not create directory for output chunks: {:?}", dir).context(err)
-    })?;
-
-    for chunk in &output.assets {
-      let dest = dir.join(chunk.filename());
-      if let Some(p) = dest.parent() {
-        if !self.fs.exists(p) {
-          self.fs.create_dir_all(p).unwrap();
-        }
-      };
-      self
-        .fs
-        .write(&dest, chunk.content_as_bytes())
-        .map_err(|err| anyhow::anyhow!("Failed to write file in {:?}", dest).context(err))?;
-    }
+    self.write_file_to_disk(&output)?;
 
     self.plugin_driver.write_bundle(&mut output.assets, &self.options).await?;
 
@@ -129,6 +126,57 @@ impl Bundler {
     Ok(scan_stage_output)
   }
 
+  #[allow(clippy::unused_async)]
+  pub async fn hmr_rebuild(&mut self, changed_files: Vec<String>) -> BuildResult<BundleOutput> {
+    let hmr_module_loader = HmrModuleLoader::new(
+      Arc::clone(&self.options),
+      Arc::clone(&self.plugin_driver),
+      self.fs,
+      Arc::clone(&self.resolver),
+      std::mem::take(&mut self.previous_module_id_to_modules),
+      std::mem::take(&mut self.previous_module_table),
+      std::mem::take(&mut self.pervious_index_ecma_ast),
+      std::mem::take(&mut self.pervious_symbols),
+    )?;
+
+    let mut hmr_module_loader_output = hmr_module_loader.fetch_changed_files(changed_files).await?;
+
+    let output = render_hmr_chunk(&self.options, &mut hmr_module_loader_output);
+
+    self.write_file_to_disk(&output)?;
+
+    // store last build modules info
+    self.previous_module_table = hmr_module_loader_output.module_table;
+    self.previous_module_id_to_modules = hmr_module_loader_output.module_id_to_modules;
+    self.pervious_index_ecma_ast = hmr_module_loader_output.index_ecma_ast;
+    self.pervious_symbols = hmr_module_loader_output.symbol_ref_db;
+
+    Ok(output)
+  }
+
+  fn write_file_to_disk(&self, output: &BundleOutput) -> Result<()> {
+    let dir = self.options.cwd.join(&self.options.dir);
+
+    self.fs.create_dir_all(&dir).map_err(|err| {
+      anyhow::anyhow!("Could not create directory for output chunks: {:?}", dir).context(err)
+    })?;
+
+    for chunk in &output.assets {
+      let dest = dir.join(chunk.filename());
+      if let Some(p) = dest.parent() {
+        if !self.fs.exists(p) {
+          self.fs.create_dir_all(p).unwrap();
+        }
+      };
+      self
+        .fs
+        .write(&dest, chunk.content_as_bytes())
+        .map_err(|err| anyhow::anyhow!("Failed to write file in {:?}", dest).context(err))?;
+    }
+
+    Ok(())
+  }
+
   async fn try_build(&mut self) -> BuildResult<LinkStageOutput> {
     let build_info = self.scan().await?;
     Ok(LinkStage::new(build_info, &self.options).link())
@@ -169,6 +217,12 @@ impl Bundler {
     self.plugin_driver.generate_bundle(&mut output.assets, is_write, &self.options).await?;
 
     output.watch_files = self.plugin_driver.watch_files.iter().map(|f| f.clone()).collect();
+
+    // store last build modules info
+    self.previous_module_table = link_stage_output.module_table;
+    self.previous_module_id_to_modules = link_stage_output.module_id_to_modules;
+    self.pervious_index_ecma_ast = link_stage_output.ast_table;
+    self.pervious_symbols = link_stage_output.symbol_db;
 
     Ok(output)
   }

@@ -5,6 +5,12 @@ import { arraify } from '../../utils/misc'
 import { ensureConfig, logger } from '../utils'
 import * as colors from '../colors'
 import { NormalizedCliOptions } from '../arguments/normalize'
+import { createServer } from 'node:http'
+import { WebSocketServer, WebSocket } from 'ws'
+// import chokidar from 'chokidar'
+import connect from 'connect'
+// import parcelWatcher from '@parcel/watcher'
+import WatchPack from 'watchpack'
 import path from 'node:path'
 import { onExit } from 'signal-exit'
 
@@ -112,10 +118,15 @@ async function bundleInner(
   const startTime = performance.now()
 
   const build = await rolldown({ ...options, ...cliOptions.input })
-  const bundleOutput = await build.write({
-    ...options?.output,
-    ...cliOptions.output,
-  })
+  const bundleOutput = options.dev
+    ? await build.generate({
+        ...options?.output,
+        ...cliOptions.output,
+      })
+    : await build.write({
+        ...options?.output,
+        ...cliOptions.output,
+      })
 
   const endTime = performance.now()
 
@@ -125,6 +136,136 @@ async function bundleInner(
   const duration = endTime - startTime
   // If the build time is more than 1s, we should display it in seconds.
   logger.success(`Finished in ${colors.bold(ms(duration))}`)
+
+  if (options.dev) {
+    const cwd = options.cwd ?? process.cwd()
+    const outputDir = options.output?.dir ?? 'dist'
+    const app = connect()
+    const virtualFiles = Object.fromEntries(
+      bundleOutput.output.map((chunk) => [
+        chunk.fileName,
+        chunk.type === 'chunk' ? chunk.code : chunk.source,
+      ]),
+    )
+    app.use((req, res, next) => {
+      if (req.url) {
+        const url = req.url === '/' ? 'index.html' : req.url.slice(1)
+        const virtualFile = virtualFiles[url]
+        if (virtualFile) {
+          res.end(virtualFile)
+        } else {
+          // eslint-disable-next-line
+          console.log(req.url + 'not found')
+          next()
+        }
+      }
+    })
+    const server = createServer(app)
+    const wsServer = new WebSocketServer({ server })
+    let socket: WebSocket
+    wsServer.on('connection', function connection(ws) {
+      socket = ws
+      logger.log(`Ws connected`)
+      ws.on('error', console.error)
+    })
+    logger.log(`Dev server running at`, colors.cyan('http://localhost:8080'))
+
+    server.listen(8080)
+
+    logger.log(`Watching for changes...`)
+
+    // await parcelWatcher.subscribe(cwd, async (err, events) => {
+    //   if (err) {
+    //     logger.error(err)
+    //     return
+    //   }
+    //   if (events.length > 0) {
+    //     const files = events.map((event) => event.path)
+    //     logger.log(`Found change in ${files.join(',')}`)
+    //     const [fileName, content] = await build.experimental_hmr_rebuild(files)
+    //     virtualFiles[fileName] = content
+    //     if (socket) {
+    //       socket.send(
+    //         JSON.stringify({
+    //           type: 'update',
+    //           url: fileName,
+    //         }),
+    //       )
+    //     }
+    //   }
+    // }, {
+    //   ignore: [
+    //     '**/.git/**',
+    //     '**/node_modules/**',
+    //     '**/test-results/**',
+    //     path.join(cwd, outputDir),
+    //   ],
+    // });
+
+    const watcher = new WatchPack({
+      aggregateTimeout: 0,
+      ignored: [
+        '**/.git/**',
+        '**/node_modules/**',
+        '**/test-results/**',
+        path.join(cwd, outputDir),
+      ],
+    })
+    watcher.watch({
+      directories: [cwd],
+    })
+    watcher.on('change', async (file) => {
+      if (file) {
+        logger.log(`Found change in ${file}`)
+        const [fileName, content] = await build.experimental_hmr_rebuild([file])
+        virtualFiles[fileName] = content
+        if (socket) {
+          socket.send(
+            JSON.stringify({
+              type: 'update',
+              url: fileName,
+            }),
+          )
+        }
+      }
+    })
+
+    // // later on...
+    // await subscription.unsubscribe();
+    // const watcher = chokidar.watch([cwd], {
+    //   ignored: [
+    //     '**/.git/**',
+    //     '**/node_modules/**',
+    //     '**/test-results/**',
+    //     path.join(cwd, outputDir),
+    //   ],
+    //   ignoreInitial: true,
+    //   ignorePermissionErrors: true,
+    //   // for windows and macos, we need to wait for the file to be written
+    //   awaitWriteFinish:
+    //     process.platform === 'linux'
+    //       ? undefined
+    //       : {
+    //           stabilityThreshold: 10,
+    //           pollInterval: 10,
+    //         },
+    // })
+    // watcher.on('change', async (file) => {
+    //   if (file) {
+    //     logger.log(`Found change in ${file}`)
+    //     const [fileName, content] = await build.experimental_hmr_rebuild([file])
+    //     virtualFiles[fileName] = content
+    //     if (socket) {
+    //       socket.send(
+    //         JSON.stringify({
+    //           type: 'update',
+    //           url: fileName,
+    //         }),
+    //       )
+    //     }
+    //   }
+    // })
+  }
 }
 
 function printBundleOutputPretty(output: RolldownOutput) {

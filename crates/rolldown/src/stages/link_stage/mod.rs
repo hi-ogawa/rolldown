@@ -1,6 +1,7 @@
 use std::{ptr::addr_of, sync::Mutex};
 
 use append_only_vec::AppendOnlyVec;
+use arcstr::ArcStr;
 use oxc_index::IndexVec;
 use rolldown_common::{
   dynamic_import_usage::DynamicImportExportsUsage, EntryPoint, ExportsKind, ImportKind,
@@ -35,6 +36,7 @@ mod wrapping;
 #[derive(Debug)]
 pub struct LinkStageOutput {
   pub module_table: ModuleTable,
+  pub module_id_to_modules: FxHashMap<ArcStr, ModuleIdx>,
   pub entries: Vec<EntryPoint>,
   pub ast_table: IndexEcmaAst,
   // pub sorted_modules: Vec<NormalModuleId>,
@@ -50,6 +52,7 @@ pub struct LinkStageOutput {
 #[derive(Debug)]
 pub struct LinkStage<'a> {
   pub module_table: ModuleTable,
+  pub module_id_to_modules: FxHashMap<ArcStr, ModuleIdx>,
   pub entries: Vec<EntryPoint>,
   pub symbols: SymbolRefDb,
   pub runtime: RuntimeModuleBrief,
@@ -92,6 +95,7 @@ impl<'a> LinkStage<'a> {
         })
         .collect::<IndexVec<ModuleIdx, _>>(),
       module_table: scan_stage_output.module_table,
+      module_id_to_modules: scan_stage_output.module_id_to_modules,
       entries: scan_stage_output.entry_points,
       symbols: scan_stage_output.symbol_ref_db,
       runtime: scan_stage_output.runtime,
@@ -120,6 +124,7 @@ impl<'a> LinkStage<'a> {
 
     LinkStageOutput {
       module_table: self.module_table,
+      module_id_to_modules: self.module_id_to_modules,
       entries: self.entries,
       // sorted_modules: self.sorted_modules,
       metas: self.metas,
@@ -437,6 +442,21 @@ impl<'a> LinkStage<'a> {
       };
       for (rec_id, meta) in record_meta_pairs {
         module.import_records[rec_id].meta |= meta;
+      }
+    }
+
+    // Make sure rolldown inject runtime
+    if matches!(self.options.format, OutputFormat::App) {
+      for module in &mut self.module_table.modules {
+        if module.idx() == self.runtime.id() {
+          continue;
+        }
+        if let Some(module) = module.as_normal_mut() {
+          module.stmt_infos.iter_mut().for_each(|stmt_info| {
+            stmt_info.referenced_symbols.push(self.runtime.resolve_symbol("__commonJS").into());
+          });
+          return;
+        }
       }
     }
   }

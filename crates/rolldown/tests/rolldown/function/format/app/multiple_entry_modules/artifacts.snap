@@ -1,11 +1,14 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
 ## cube.js
 
 ```js
+rolldown_runtime.define('square.js',function(require, module, exports){
+
 //#region square.js
 __toCommonJS(exports);
 __export(exports, { default: () => square });
@@ -14,6 +17,9 @@ function square(x) {
 };
 
 //#endregion
+});
+rolldown_runtime.define('cube.js',function(require, module, exports){
+
 //#region cube.js
 __toCommonJS(exports);
 __export(exports, { default: () => cube });
@@ -23,10 +29,14 @@ function cube(x) {
 };
 
 //#endregion
+});
 ```
 ## main.js
 
 ```js
+
+rolldown_runtime.define('hyper-cube.js',function(require, module, exports){
+
 //#region hyper-cube.js
 __toCommonJS(exports);
 __export(exports, { default: () => hyperCube });
@@ -36,20 +46,29 @@ function hyperCube(x) {
 };
 
 //#endregion
+});
+rolldown_runtime.define('main.js',function(require, module, exports){
+
 //#region main.js
 __toCommonJS(exports);
 var hyper_cube_exports = require("hyper-cube.js");
 console.log(hyper_cube_exports.default(5));
 
 //#endregion
+});
+rolldown_runtime.require('main.js');
 ```
 ## other-entry.js
 
 ```js
+rolldown_runtime.define('other-entry.js',function(require, module, exports){
+
 //#region other-entry.js
 __toCommonJS(exports);
 var cube_exports = require("cube.js");
 console.log(cube_exports.default(5));
 
 //#endregion
+});
+rolldown_runtime.require('other-entry.js');
 ```

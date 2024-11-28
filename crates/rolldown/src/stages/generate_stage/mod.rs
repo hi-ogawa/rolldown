@@ -46,6 +46,7 @@ mod code_splitting;
 mod compute_cross_chunk_links;
 mod minify_assets;
 mod render_chunk_to_assets;
+pub mod render_hmr_chunk;
 
 pub struct GenerateStage<'a> {
   link_output: &'a mut LinkStageOutput,
@@ -116,6 +117,10 @@ impl<'a> GenerateStage<'a> {
             ast,
           );
         } else {
+          // TODO: The runtime module need to hoisted temporarily.
+          if *owner == self.link_output.runtime.id() {
+            return;
+          }
           ast.program.with_mut(|fields| {
             let (oxc_program, alloc) = (fields.program, fields.allocator);
             let mut finalizer = IsolatingModuleFinalizer {

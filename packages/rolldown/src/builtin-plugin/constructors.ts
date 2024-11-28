@@ -73,3 +73,7 @@ export function viteResolvePlugin(
   })
   return makeBuiltinPluginCallable(builtinPlugin)
 }
+
+export function reactPlugin() {
+  return new BuiltinPlugin('builtin:react')
+}

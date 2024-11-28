@@ -14,6 +14,7 @@ export {
   loadFallbackPlugin,
   jsonPlugin,
   buildImportAnalysisPlugin,
+  reactPlugin,
   viteResolvePlugin,
 } from './builtin-plugin/constructors'
 

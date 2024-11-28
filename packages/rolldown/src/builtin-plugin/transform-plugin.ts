@@ -21,6 +21,7 @@ function normalizeEcmaTransformPluginConfig(
   }
   let normalizedConfig: BindingTransformPluginConfig = {
     jsxInject: config?.jsxInject,
+    reactRefresh: config?.reactRefresh,
     exclude: normalizedStringOrRegex(config.exclude),
     include: normalizedStringOrRegex(config.include),
     targets: config.targets,

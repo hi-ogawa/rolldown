@@ -100,7 +100,12 @@
     "dtsHeader": "type MaybePromise<T> = T | Promise<T>\ntype Nullable<T> = T | null | undefined\ntype VoidNullable<T = void> = T | null | undefined | void\nexport type BindingStringOrRegex = string | RegExp\n\nexport interface RenderedModule {\n  readonly code: string | null\n  renderedLength: number\n}\n\n"
   },
   "dependencies": {
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "chokidar": "3.6.0",
+    "watchpack": "2.4.2",
+    "@parcel/watcher": "2.4.1",
+    "ws": "8.18.0",
+    "connect": "3.7.0"
   },
   "peerDependencies": {
     "@babel/runtime": ">=7"
@@ -115,8 +120,12 @@
     "@napi-rs/cli": "^3.0.0-alpha.60",
     "@napi-rs/wasm-runtime": "^0.2.4",
     "@rolldown/testing": "workspace:*",
+    "@types/connect": "3.4.38",
     "@types/fs-extra": "^11.0.4",
     "@types/lodash-es": "^4.17.12",
+    "@types/serve-static": "1.13.6",
+    "@types/watchpack": "2.4.2",
+    "@types/ws": "8.5.12",
     "colorette": "^2.0.20",
     "consola": "^3.2.3",
     "emnapi": "^1.2.0",

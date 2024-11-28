@@ -94,6 +94,12 @@ impl Bundler {
 
   #[napi]
   #[tracing::instrument(level = "debug", skip_all)]
+  pub async fn hmr_rebuild(&self, changed_files: Vec<String>) -> napi::Result<BindingOutputs> {
+    self.hmr_rebuild_impl(changed_files).await
+  }
+
+  #[napi]
+  #[tracing::instrument(level = "debug", skip_all)]
   pub async fn close(&self) -> napi::Result<()> {
     self.close_impl().await
   }
@@ -171,6 +177,18 @@ impl Bundler {
   pub fn watch_impl(&self) -> napi::Result<BindingWatcher> {
     let watcher = handle_result(NativeBundler::watch(Arc::clone(&self.inner)))?;
     Ok(BindingWatcher::new(watcher))
+  }
+
+  pub async fn hmr_rebuild_impl(&self, changed_files: Vec<String>) -> napi::Result<BindingOutputs> {
+    let mut bundler_core = self.inner.lock().await;
+
+    let bundle_output = match bundler_core.hmr_rebuild(changed_files).await {
+      Ok(output) => output,
+      Err(errs) => return Ok(self.handle_errors(errs.into_vec())),
+    };
+
+    self.handle_warnings(bundle_output.warnings).await;
+    Ok(bundle_output.assets.into())
   }
 
   #[allow(clippy::significant_drop_tightening)]

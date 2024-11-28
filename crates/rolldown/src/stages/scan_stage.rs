@@ -30,6 +30,7 @@ pub struct ScanStage {
 #[derive(Debug)]
 pub struct ScanStageOutput {
   pub module_table: ModuleTable,
+  pub module_id_to_modules: FxHashMap<ArcStr, ModuleIdx>,
   pub index_ecma_ast: IndexEcmaAst,
   pub entry_points: Vec<EntryPoint>,
   pub symbol_ref_db: SymbolRefDb,
@@ -76,6 +77,7 @@ impl ScanStage {
       runtime,
       warnings,
       index_ecma_ast,
+      module_id_to_modules,
       dynamic_import_exports_usage_map,
     } = match module_loader.fetch_all_modules(user_entries).await? {
       Ok(output) => output,
@@ -86,6 +88,7 @@ impl ScanStage {
 
     Ok(ScanStageOutput {
       module_table,
+      module_id_to_modules,
       entry_points,
       symbol_ref_db,
       runtime,
