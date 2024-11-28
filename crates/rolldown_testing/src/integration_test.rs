@@ -10,10 +10,10 @@ use std::{
 use anyhow::Context;
 use rolldown::{
   plugin::__inner::SharedPluginable, BundleOutput, Bundler, BundlerOptions, IsExternal,
-  OutputFormat, SourceMapType,
+  OutputFormat, Platform, SourceMapType,
 };
 use rolldown_common::Output;
-use rolldown_error::DiagnosticOptions;
+use rolldown_error::{BuildDiagnostic, BuildResult, DiagnosticOptions};
 use rolldown_sourcemap::SourcemapVisualizer;
 use rolldown_testing_config::TestMeta;
 use serde_json::{Map, Value};
@@ -26,6 +26,11 @@ pub struct IntegrationTest {
   test_meta: TestMeta,
 }
 
+pub struct NamedBundlerOptions {
+  pub name: Option<String>,
+  pub options: BundlerOptions,
+}
+
 fn default_test_input_item() -> rolldown::InputItem {
   rolldown::InputItem { name: Some("main".to_string()), import: "./main.js".to_string() }
 }
@@ -35,7 +40,7 @@ impl IntegrationTest {
     Self { test_meta }
   }
 
-  pub async fn bundle(&self, mut options: BundlerOptions) -> BundleOutput {
+  pub async fn bundle(&self, mut options: BundlerOptions) -> BuildResult<BundleOutput> {
     self.apply_test_defaults(&mut options);
 
     let mut bundler = Bundler::new(options);
@@ -46,9 +51,9 @@ impl IntegrationTest {
           .context(bundler.options().dir.clone())
           .expect("Failed to clean the output directory");
       }
-      bundler.write().await.unwrap()
+      bundler.write().await
     } else {
-      bundler.generate().await.unwrap()
+      bundler.generate().await
     }
   }
 
@@ -74,32 +79,111 @@ impl IntegrationTest {
           .context(format!("{abs_output_dir:?}"))
           .expect("Failed to clean the output directory");
       }
-      bundler.write().await.unwrap()
+      bundler.write().await
     } else {
-      bundler.generate().await.unwrap()
+      bundler.generate().await
     };
 
-    assert!(
-      !(self.test_meta.expect_error && bundle_output.errors.is_empty()),
-      "Expected the bundling to be failed with diagnosable errors, but got success"
-    );
+    match bundle_output {
+      Ok(bundle_output) => {
+        assert!(
+          !self.test_meta.expect_error,
+          "Expected the bundling to be failed with diagnosable errors, but got success"
+        );
 
-    assert!(
-      !(!bundle_output.errors.is_empty() && !self.test_meta.expect_error),
-      "Expected the bundling to be success, but got diagnosable errors: {:?}",
-      bundle_output.errors
-    );
+        self.snapshot_bundle_output(bundle_output, vec![], &cwd);
 
-    self.snapshot_bundle_output(bundle_output, &cwd);
-
-    if !self.test_meta.expect_executed
-      || self.test_meta.expect_error
-      || !self.test_meta.write_to_disk
-    {
-      // do nothing
-    } else {
-      Self::execute_output_assets(&bundler);
+        if !self.test_meta.expect_executed
+          || self.test_meta.expect_error
+          || !self.test_meta.write_to_disk
+        {
+          // do nothing
+        } else {
+          Self::execute_output_assets(&bundler, "");
+        }
+      }
+      Err(errs) => {
+        assert!(
+          self.test_meta.expect_error,
+          "Expected the bundling to be success, but got diagnosable errors: {errs:#?}"
+        );
+        self.snapshot_bundle_output(BundleOutput::default(), errs.into_vec(), &cwd);
+      }
     }
+  }
+
+  pub async fn run_multiple(
+    &self,
+    multiple_options: Vec<NamedBundlerOptions>,
+    test_folder_path: &Path,
+  ) {
+    let mut snapshot_outputs = vec![];
+    for mut named_options in multiple_options {
+      self.apply_test_defaults(&mut named_options.options);
+
+      let mut bundler = Bundler::with_plugins(named_options.options, vec![]);
+
+      let debug_title = named_options.name.clone().unwrap_or_else(String::new);
+
+      let cwd = bundler.options().cwd.clone();
+
+      let bundle_output = if self.test_meta.write_to_disk {
+        let abs_output_dir = cwd.join(&bundler.options().dir);
+        if abs_output_dir.is_dir() {
+          std::fs::remove_dir_all(&abs_output_dir)
+            .context(format!("{abs_output_dir:?}"))
+            .expect("Failed to clean the output directory");
+        }
+        bundler.write().await
+      } else {
+        bundler.generate().await
+      };
+
+      if !debug_title.is_empty() {
+        snapshot_outputs.push("\n---\n\n".to_string());
+        snapshot_outputs.push(format!("Variant: {debug_title}\n\n"));
+      }
+
+      match bundle_output {
+        Ok(bundle_output) => {
+          assert!(
+            !self.test_meta.expect_error,
+            "Expected the bundling to be failed with diagnosable errors, but got success"
+          );
+
+          let snapshot_content = self.render_bundle_output_to_string(bundle_output, vec![], &cwd);
+          snapshot_outputs.push(snapshot_content);
+
+          if !self.test_meta.expect_executed
+            || self.test_meta.expect_error
+            || !self.test_meta.write_to_disk
+          {
+            // do nothing
+          } else {
+            Self::execute_output_assets(&bundler, &debug_title);
+          }
+        }
+        Err(errs) => {
+          assert!(
+            self.test_meta.expect_error,
+            "Expected the bundling to be success, but got diagnosable errors: {errs:#?}"
+          );
+          let snapshot_content =
+            self.render_bundle_output_to_string(BundleOutput::default(), errs.into_vec(), &cwd);
+          snapshot_outputs.push(snapshot_content);
+        }
+      }
+    }
+
+    // Configure insta to use the fixture path as the snapshot path
+    let mut settings = insta::Settings::clone_current();
+    settings.set_snapshot_path(test_folder_path);
+    settings.set_prepend_module_to_snapshot(false);
+    settings.remove_input_file();
+    settings.set_omit_expression(true);
+    settings.bind(|| {
+      insta::assert_snapshot!("artifacts", snapshot_outputs.concat());
+    });
   }
 
   fn apply_test_defaults(&self, options: &mut BundlerOptions) {
@@ -145,10 +229,15 @@ impl IntegrationTest {
     }
   }
 
-  #[allow(clippy::too_many_lines)]
-  #[allow(clippy::if_not_else)]
-  fn snapshot_bundle_output(&self, bundle_output: BundleOutput, cwd: &Path) {
-    let mut errors = bundle_output.errors;
+  #[expect(clippy::too_many_lines)]
+  #[expect(clippy::if_not_else)]
+  fn render_bundle_output_to_string(
+    &self,
+    bundle_output: BundleOutput,
+    errs: Vec<BuildDiagnostic>,
+    cwd: &Path,
+  ) -> String {
+    let mut errors = errs;
     let errors_section = if !errors.is_empty() {
       let mut snapshot = String::new();
       snapshot.push_str("# Errors\n\n");
@@ -157,17 +246,19 @@ impl IntegrationTest {
         .into_iter()
         .map(|e| (e.kind(), e.into_diagnostic_with(&DiagnosticOptions { cwd: cwd.to_path_buf() })));
 
-      let rendered = diagnostics
-        .flat_map(|(code, diagnostic)| {
+      let mut rendered_diagnostics = diagnostics
+        .map(|(code, diagnostic)| {
           [
             Cow::Owned(format!("## {code}\n")),
             "```text".into(),
             Cow::Owned(diagnostic.to_string()),
             "```".into(),
           ]
+          .join("\n")
         })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect::<Vec<_>>();
+      rendered_diagnostics.sort();
+      let rendered = rendered_diagnostics.join("\n");
       snapshot.push_str(&rendered);
       snapshot
     } else {
@@ -326,7 +417,16 @@ impl IntegrationTest {
     .join("\n")
     .trim()
     .to_owned();
+    snapshot
+  }
 
+  fn snapshot_bundle_output(
+    &self,
+    bundle_output: BundleOutput,
+    errs: Vec<BuildDiagnostic>,
+    cwd: &Path,
+  ) {
+    let content = self.render_bundle_output_to_string(bundle_output, errs, cwd);
     // Configure insta to use the fixture path as the snapshot path
     let mut settings = insta::Settings::clone_current();
     settings.set_snapshot_path(cwd);
@@ -334,18 +434,20 @@ impl IntegrationTest {
     settings.remove_input_file();
     settings.set_omit_expression(true);
     settings.bind(|| {
-      insta::assert_snapshot!("artifacts", snapshot);
+      insta::assert_snapshot!("artifacts", content);
     });
   }
 
-  fn execute_output_assets(bundler: &Bundler) {
+  fn execute_output_assets(bundler: &Bundler, test_title: &str) {
     let cwd = bundler.options().cwd.clone();
     let dist_folder = cwd.join(&bundler.options().dir);
 
-    let is_output_cjs = matches!(bundler.options().format, OutputFormat::Cjs);
+    let is_expect_executed_under_esm = matches!(bundler.options().format, OutputFormat::Esm)
+      || (!matches!(bundler.options().format, OutputFormat::Cjs)
+        && matches!(bundler.options().platform, Platform::Browser));
 
     // add a dummy `package.json` to allow `import and export` when output module format is `esm`
-    if !is_output_cjs {
+    if is_expect_executed_under_esm {
       let package_json_path = dist_folder.join("package.json");
       let mut package_json = std::fs::File::options()
         .create(true)
@@ -362,7 +464,7 @@ impl IntegrationTest {
       package_json.write_all(serde_json::to_string_pretty(&json).unwrap().as_bytes()).unwrap();
     }
 
-    let test_script = if is_output_cjs { cwd.join("_test.cjs") } else { cwd.join("_test.mjs") };
+    let test_script = cwd.join("_test.mjs");
 
     let mut node_command = Command::new("node");
 
@@ -382,12 +484,8 @@ impl IntegrationTest {
         .collect::<Vec<_>>();
 
       compiled_entries.iter().for_each(|entry| {
-        if is_output_cjs {
-          node_command.arg("--require");
-        } else {
-          node_command.arg("--import");
-        }
-        if cfg!(target_os = "windows") && !is_output_cjs {
+        node_command.arg("--import");
+        if cfg!(target_os = "windows") {
           // Only URLs with a scheme in: file, data, and node are supported by the default ESM loader. On Windows, absolute paths must be valid file:// URLs.
           node_command.arg(format!("file://{}", entry.to_str().expect("should be valid utf8")));
         } else {
@@ -405,8 +503,12 @@ impl IntegrationTest {
       let stdout_utf8 = std::str::from_utf8(&output.stdout).unwrap();
       let stderr_utf8 = std::str::from_utf8(&output.stderr).unwrap();
 
-      println!("⬇️⬇️ Failed to execute command ⬇️⬇️\n{node_command:?}\n⬆️⬆️ end  ⬆️⬆️");
-      panic!("⬇️⬇️ stderr ⬇️⬇️\n{stderr_utf8}\n⬇️⬇️ stdout ⬇️⬇️\n{stdout_utf8}\n⬆️⬆️ end  ⬆️⬆️",);
+      println!(
+        "⬇️⬇️ Failed to execute command {test_title} ⬇️⬇️\n{node_command:?}\n⬆️⬆️ end  ⬆️⬆️"
+      );
+      panic!(
+        "⬇️⬇️ stderr {test_title} ⬇️⬇️\n{stderr_utf8}\n⬇️⬇️ stdout ⬇️⬇️\n{stdout_utf8}\n⬆️⬆️ end  ⬆️⬆️",
+      );
     }
   }
 }

@@ -7,6 +7,7 @@ pub mod types;
 pub use binding_plugin_options::*;
 pub use js_plugin::*;
 mod binding_builtin_plugin;
+mod binding_callable_builtin_plugin;
 mod binding_plugin_hook_meta;
 
 #[cfg(not(target_family = "wasm"))]

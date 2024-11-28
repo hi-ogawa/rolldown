@@ -1,6 +1,6 @@
 {
   "name": "rolldown",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "Fast JavaScript/TypeScript bundler in Rust with Rollup-compatible API.",
   "homepage": "https://rolldown.rs/",
   "repository": {
@@ -44,7 +44,6 @@
       "require": "./dist/cjs/parallel-plugin.cjs",
       "import": "./dist/esm/parallel-plugin.mjs"
     },
-    "./watcher-worker": "./dist/shared/watcher-worker.js",
     "./package.json": "./package.json"
   },
   "imports": {
@@ -63,15 +62,15 @@
     "build-binding:wasi:release": "pnpm build-binding --profile release-wasi --target wasm32-wasip1-threads",
     "# Scrips for node #": "_",
     "bak_build-node": "unbuild",
-    "build-node": "node ../../node_modules/npm-rolldown/bin/cli.js -c ./rolldown.config.mjs",
+    "build-node": "tsx ./build.mts",
     "build-types": "tsc -p ./tsconfig.dts.json",
     "build-types-check": "tsc -p ./tsconfig.check.json",
     "build-native:debug": "run-s build-binding build-types build-node build-types-check",
     "build-native:release": "run-s build-binding:release build-types build-node build-types-check",
-    "build-wasi:debug": "run-s build-binding:wasi build-node",
-    "build-wasi:release": "run-s build-binding:wasi:release build-node",
+    "build-wasi:debug": "run-s build-binding build-binding:wasi build-node",
+    "build-wasi:release": "run-s build-binding build-binding:wasi:release build-node",
     "# Scrips for checking #": "_",
-    "test": "cross-env RUST_BACKTRACE=1 ROLLDOWN_TEST=1 vitest run --reporter verbose --hideSkippedTests",
+    "test": "pnpm run --filter rolldown-tests go",
     "test:update": "vitest run -u",
     "type-check": "tsc"
   },
@@ -98,7 +97,7 @@
         "fs": true
       }
     },
-    "dtsHeader": "type MaybePromise<T> = T | Promise<T>\ntype Nullable<T> = T | null | undefined\ntype VoidNullable<T = void> = T | null | undefined | void\nexport type BindingStringOrRegex = string | RegExp\n\n"
+    "dtsHeader": "type MaybePromise<T> = T | Promise<T>\ntype Nullable<T> = T | null | undefined\ntype VoidNullable<T = void> = T | null | undefined | void\nexport type BindingStringOrRegex = string | RegExp\n\nexport interface RenderedModule {\n  readonly code: string | null\n  renderedLength: number\n}\n\n"
   },
   "dependencies": {
     "zod": "^3.23.8",
@@ -108,15 +107,24 @@
     "ws": "8.18.0",
     "connect": "3.7.0"
   },
+  "peerDependencies": {
+    "@babel/runtime": ">=7"
+  },
+  "peerDependenciesMeta": {
+    "@babel/runtime": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/watchpack": "2.4.2",
+    "@jridgewell/sourcemap-codec": "^1.5.0",
     "@napi-rs/cli": "^3.0.0-alpha.60",
     "@napi-rs/wasm-runtime": "^0.2.4",
     "@rolldown/testing": "workspace:*",
+    "@types/fs-extra": "^11.0.4",
     "@types/lodash-es": "^4.17.12",
     "colorette": "^2.0.20",
     "consola": "^3.2.3",
-    "cross-env": "^7.0.3",
     "emnapi": "^1.2.0",
     "execa": "^9.2.0",
     "fs-extra": "^11.2.0",
@@ -126,16 +134,16 @@
     "remeda": "^2.10.0",
     "rolldown": "workspace:*",
     "rollup": "^4.18.0",
+    "signal-exit": "4.1.0",
+    "source-map": "^0.7.4",
+    "tsx": "^4.19.2",
     "type-fest": "^4.20.0",
     "unbuild": "^2.0.0",
-    "vite": "^5.2.13",
-    "vitest": "^2.0.0",
     "why-is-node-running": "^3.0.0",
     "zod-to-json-schema": "^3.23.2",
     "@types/ws": "8.5.12",
     "@types/connect": "3.4.38",
-    "@types/serve-static": "1.13.6",
-    "signal-exit": "4.1.0"
+    "@types/serve-static": "1.13.6"
   },
   "optionalDependencies": {
     "@rolldown/binding-darwin-arm64": "workspace:*",

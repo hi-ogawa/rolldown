@@ -7,7 +7,7 @@ snapshot_kind: text
 ## UNRESOLVED_IMPORT
 
 ```text
-[UNRESOLVED_IMPORT] Warning: Could not resolve some-pkg/css in entry.css
+[UNRESOLVED_IMPORT] Warning: Could not resolve 'some-pkg/css' in entry.css
 
 ```
 # Assets
@@ -31,6 +31,7 @@ function foo() {
 	* Copyright notice 2
 	*/
 	console.log("in c");
+	// @preserve This is another comment
 }
 foo();
 

@@ -18,6 +18,8 @@ import {
   transformAssetSource,
 } from './asset-source'
 import { bindingifySourcemap } from '../types/sourcemap'
+import { transformToRenderedModule } from './transform-rendered-module'
+import { normalizeErrors } from './error'
 
 function transformToRollupOutputChunk(
   bindingChunk: BindingOutputChunk,
@@ -32,7 +34,10 @@ function transformToRollupOutputChunk(
     name: bindingChunk.name,
     get modules() {
       return Object.fromEntries(
-        Object.entries(bindingChunk.modules).map(([key, _]) => [key, {}]),
+        Object.entries(bindingChunk.modules).map(([key, value]) => [
+          key,
+          transformToRenderedModule(value),
+        ]),
       )
     },
     get imports() {
@@ -103,6 +108,7 @@ export function transformToRollupOutput(
   output: BindingOutputs,
   changed?: ChangedOutputs,
 ): RolldownOutput {
+  handleOutputErrors(output)
   const { chunks, assets } = output
   return {
     output: [
@@ -110,6 +116,13 @@ export function transformToRollupOutput(
       ...assets.map((asset) => transformToRollupOutputAsset(asset, changed)),
     ],
   } as RolldownOutput
+}
+
+export function handleOutputErrors(output: BindingOutputs) {
+  const rawErrors = output.errors
+  if (rawErrors.length > 0) {
+    throw normalizeErrors(rawErrors)
+  }
 }
 
 export function transformToOutputBundle(
@@ -165,7 +178,7 @@ export function collectChangedBundle(
         isEntry: item.isEntry,
         exports: item.exports,
         modules: Object.fromEntries(
-          Object.entries(item.modules).map(([key, _]) => [key, {}]),
+          Object.entries(item.modules).map(([key, _]) => [key, {} as any]),
         ),
         imports: item.imports,
         dynamicImports: item.dynamicImports,

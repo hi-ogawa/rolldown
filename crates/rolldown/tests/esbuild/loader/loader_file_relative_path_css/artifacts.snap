@@ -1,13 +1,19 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
+## assets/image-Dq1zDy-k.png
+
+```png
+x
+```
 ## entries_entry.css
 
 ```css
 div {
-	background: url(../images/image.png);
+	background: url(assets/image-Dq1zDy-k.png);
 }
 
 ```
@@ -15,4 +21,8 @@ div {
 
 ```js
 
+//#region images/image.png
+var image_default = "assets/image-Dq1zDy-k.png";
+
+//#endregion
 ```

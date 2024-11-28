@@ -32,7 +32,7 @@ var json___31_32_33__default = "123";
 
 //#endregion
 //#region <data:application/json;base64,eyJ3b3JrcyI6dHJ1ZX0=>
-const works$1 = true;
+var works$1 = true;
 var json_base64_eyJ3b3JrcyI6dHJ1ZX0__default = { works: works$1 };
 
 //#endregion
@@ -41,7 +41,7 @@ var json_charset_UTF_8__31_32_33_default = 123;
 
 //#endregion
 //#region <data:application/json;charset=UTF-8;base64,eyJ3b3JrcyI6dHJ1ZX0=>
-const works = true;
+var works = true;
 var json_charset_UTF_8_base64_eyJ3b3JrcyI6dHJ1ZX0__default = { works };
 
 //#endregion

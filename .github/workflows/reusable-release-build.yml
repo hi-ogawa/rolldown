@@ -164,11 +164,17 @@ jobs:
       fail-fast: false
     name: Build Node Package
     runs-on: ubuntu-latest
+    env:
+      RELEASING: 'true'
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node
         uses: ./.github/actions/setup-node
+
+      - name: Build Node binding
+        # This binary is only used to build the node package itself. It's won't be published.
+        run: pnpm --filter rolldown build-binding
 
       - name: Build Node Packages
         # Binaries are built in the previous steps. Unlike in local development, we only need to build the node package itself.

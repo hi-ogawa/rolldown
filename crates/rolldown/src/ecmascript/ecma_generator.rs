@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
   types::generator::{GenerateContext, GenerateOutput, Generator},
   utils::{chunk::generate_rendered_chunk, render_ecma_module::render_ecma_module},
@@ -21,7 +23,8 @@ use super::format::{
   app::render_app, cjs::render_cjs, esm::render_esm, iife::render_iife, umd::render_umd,
 };
 
-pub type RenderedModuleSources = Vec<(ModuleIdx, ModuleId, Option<Vec<Box<dyn Source + Send>>>)>;
+pub type RenderedModuleSources =
+  Vec<(ModuleIdx, ModuleId, Option<Arc<[Box<dyn Source + Send + Sync>]>>)>;
 
 pub struct EcmaGenerator;
 
@@ -48,10 +51,10 @@ impl Generator for EcmaGenerator {
       })
       .collect::<Vec<_>>();
 
-    rendered_module_sources.iter().for_each(|(_, module_id, _)| {
+    rendered_module_sources.iter().for_each(|(_, module_id, sources)| {
       // FIXME: NAPI-RS used CStr under the hood, so it can't handle null byte in the string.
       if !module_id.starts_with('\0') {
-        rendered_modules.insert(module_id.clone(), RenderedModule { code: None });
+        rendered_modules.insert(module_id.clone(), RenderedModule::new(sources.clone()));
       }
     });
 
@@ -61,21 +64,15 @@ impl Generator for EcmaGenerator {
       ctx.chunk.pre_rendered_chunk.as_ref().expect("Should have pre-rendered chunk"),
       ctx.chunk_graph,
     );
-    let hashbang = match ctx.chunk.kind {
-      rolldown_common::ChunkKind::EntryPoint { is_user_defined, module, .. } if is_user_defined => {
-        let module = &ctx.link_output.module_table.modules[module];
-        match module {
-          rolldown_common::Module::Normal(normal_module) => {
-            let source = &normal_module.source;
-            normal_module
-              .ecma_view
-              .hashbang_range
-              .map(|range| &source.as_str()[range.start as usize..range.end as usize])
-          }
-          rolldown_common::Module::External(_) => None,
-        }
+    let hashbang = match ctx.chunk.user_defined_entry_module(&ctx.link_output.module_table) {
+      Some(normal_module) => {
+        let source = &normal_module.source;
+        normal_module
+          .ecma_view
+          .hashbang_range
+          .map(|range| &source.as_str()[range.start as usize..range.end as usize])
       }
-      _ => None,
+      None => None,
     };
 
     let banner = {
@@ -122,34 +119,80 @@ impl Generator for EcmaGenerator {
         .await?
     };
 
-    let concat_source = match ctx.options.format {
-      OutputFormat::Esm => {
-        render_esm(ctx, rendered_module_sources, banner, footer, intro, outro, hashbang)
-      }
+    let mut warnings = vec![];
+
+    let source_joiner = match ctx.options.format {
+      OutputFormat::Esm => render_esm(
+        ctx,
+        hashbang,
+        banner.as_deref(),
+        intro.as_deref(),
+        outro.as_deref(),
+        footer.as_deref(),
+        &rendered_module_sources,
+      ),
       OutputFormat::Cjs => {
-        match render_cjs(ctx, rendered_module_sources, banner, footer, intro, outro, hashbang) {
-          Ok(concat_source) => concat_source,
+        match render_cjs(
+          ctx,
+          hashbang,
+          banner.as_deref(),
+          intro.as_deref(),
+          outro.as_deref(),
+          footer.as_deref(),
+          &rendered_module_sources,
+          &mut warnings,
+        ) {
+          Ok(source_joiner) => source_joiner,
           Err(errors) => return Ok(Err(errors)),
         }
       }
-      OutputFormat::App => {
-        render_app(ctx, rendered_module_sources, banner, footer, intro, outro, hashbang)
-      }
+      OutputFormat::App => render_app(
+        ctx,
+        hashbang,
+        banner.as_deref(),
+        intro.as_deref(),
+        outro.as_deref(),
+        footer.as_deref(),
+        &rendered_module_sources,
+      ),
       OutputFormat::Iife => {
-        match render_iife(ctx, rendered_module_sources, banner, footer, intro, outro, hashbang) {
-          Ok(concat_source) => concat_source,
+        match render_iife(
+          ctx,
+          hashbang,
+          banner.as_deref(),
+          intro.as_deref(),
+          outro.as_deref(),
+          footer.as_deref(),
+          &rendered_module_sources,
+          &mut warnings,
+        )
+        .await
+        {
+          Ok(source_joiner) => source_joiner,
           Err(errors) => return Ok(Err(errors)),
         }
       }
       OutputFormat::Umd => {
-        match render_umd(ctx, rendered_module_sources, banner, footer, intro, outro) {
-          Ok(concat_source) => concat_source,
+        match render_umd(
+          ctx,
+          banner.as_deref(),
+          intro.as_deref(),
+          outro.as_deref(),
+          footer.as_deref(),
+          &rendered_module_sources,
+          &mut warnings,
+        )
+        .await
+        {
+          Ok(source_joiner) => source_joiner,
           Err(errors) => return Ok(Err(errors)),
         }
       }
     };
 
-    let (content, mut map) = concat_source.content_and_sourcemap();
+    ctx.warnings.extend(warnings);
+
+    let (content, mut map) = source_joiner.join();
 
     // Here file path is generated by chunk file name template, it maybe including path segments.
     // So here need to read it's parent directory as file_dir.

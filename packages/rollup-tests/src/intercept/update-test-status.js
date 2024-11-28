@@ -2,25 +2,13 @@ const {
   loadFailedTests,
   calcTestId,
   updateFailedTestsJson,
-  loadIgnoredTests,
-  // loadOnlyTests,
+  shouldIgnoredTest,
+  status
 } = require('./utils')
 const fs = require('node:fs')
 const path = require('node:path')
 
 const alreadyFailedTests = new Set(loadFailedTests())
-// const onlyTests = loadOnlyTests()
-const ignoredTests = loadIgnoredTests()
-
-// The windows has special test, so here total is different at different platform.
-const status = {
-  // total: 0,
-  failed: 0,
-  skipFailed: 0,
-  ignored: ignoredTests.size,
-  skipped: 0,
-  passed: 0,
-}
 
 beforeEach(function skipAlreadyFiledTests() {
   if (!this.currentTest) {
@@ -33,7 +21,7 @@ beforeEach(function skipAlreadyFiledTests() {
   //   this.currentTest?.skip()
   // }
 
-  if (ignoredTests.has(id)) {
+  if (shouldIgnoredTest(id)) {
     // status.ignored += 1
     this.currentTest?.skip()
   }
@@ -82,7 +70,7 @@ function writeTestStatusToMarkdown() {
   let markdown = '|  | number |\n|----| ---- |\n'
   const statusKeys = /** @type {Array<keyof typeof status>} */ (Object.keys(status))
   for (const key of statusKeys) {
-    markdown += `| ${key} | ${status[key]}|\n`
+    markdown += `| ${key} | ${status[key]} |\n`
   }
   fs.writeFileSync(path.join(__dirname, '../status.md'), markdown)
 }

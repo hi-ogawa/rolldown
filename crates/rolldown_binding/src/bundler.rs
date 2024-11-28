@@ -17,13 +17,13 @@ use crate::{
 use napi::{tokio::sync::Mutex, Env};
 use napi_derive::napi;
 use rolldown::Bundler as NativeBundler;
-use rolldown_error::{BuildDiagnostic, DiagnosticOptions};
+use rolldown_error::{BuildDiagnostic, BuildResult, DiagnosticOptions};
 
 #[napi]
 pub struct Bundler {
   inner: Arc<Mutex<NativeBundler>>,
   on_log: BindingOnLog,
-  log_level: Option<BindingLogLevel>,
+  log_level: BindingLogLevel,
   cwd: PathBuf,
 }
 
@@ -39,7 +39,7 @@ impl Bundler {
   ) -> napi::Result<Self> {
     try_init_custom_trace_subscriber(env);
 
-    let log_level = input_options.log_level.take();
+    let log_level = input_options.log_level;
     let on_log = input_options.on_log.take();
 
     #[cfg(target_family = "wasm")]
@@ -88,7 +88,7 @@ impl Bundler {
 
   #[napi]
   #[tracing::instrument(level = "debug", skip_all)]
-  pub async fn scan(&self) -> napi::Result<()> {
+  pub async fn scan(&self) -> napi::Result<BindingOutputs> {
     self.scan_impl().await
   }
 
@@ -104,40 +104,46 @@ impl Bundler {
     self.close_impl().await
   }
 
+  // The watch is sync, but the api is async to ensure tokio runtime is available
   #[napi]
   #[tracing::instrument(level = "debug", skip_all)]
   pub async fn watch(&self) -> napi::Result<BindingWatcher> {
-    self.watch_impl().await
+    self.watch_impl()
+  }
+
+  #[napi(getter)]
+  #[tracing::instrument(level = "debug", skip_all)]
+  pub fn get_closed(&self) -> napi::Result<bool> {
+    napi::bindgen_prelude::block_on(async { self.get_closed_impl().await })
   }
 }
 
 impl Bundler {
   #[allow(clippy::significant_drop_tightening)]
-  pub async fn scan_impl(&self) -> napi::Result<()> {
+  pub async fn scan_impl(&self) -> napi::Result<BindingOutputs> {
     let mut bundler_core = self.inner.lock().await;
-    let output = handle_result(bundler_core.scan().await)?;
+    let output = self.handle_result(bundler_core.scan().await);
 
     match output {
       Ok(output) => {
         self.handle_warnings(output.warnings).await;
       }
-      Err(errs) => {
-        return Err(self.handle_errors(errs.into_vec()));
+      Err(outputs) => {
+        return Ok(outputs);
       }
     }
 
-    Ok(())
+    Ok(vec![].into())
   }
 
   #[allow(clippy::significant_drop_tightening)]
   pub async fn write_impl(&self) -> napi::Result<BindingOutputs> {
     let mut bundler_core = self.inner.lock().await;
 
-    let outputs = handle_result(bundler_core.write().await)?;
-
-    if !outputs.errors.is_empty() {
-      return Err(self.handle_errors(outputs.errors));
-    }
+    let outputs = match bundler_core.write().await {
+      Ok(outputs) => outputs,
+      Err(errs) => return Ok(self.handle_errors(errs.into_vec())),
+    };
 
     self.handle_warnings(outputs.warnings).await;
 
@@ -148,15 +154,14 @@ impl Bundler {
   pub async fn generate_impl(&self) -> napi::Result<BindingOutputs> {
     let mut bundler_core = self.inner.lock().await;
 
-    let outputs = handle_result(bundler_core.generate().await)?;
+    let bundle_output = match bundler_core.generate().await {
+      Ok(output) => output,
+      Err(errs) => return Ok(self.handle_errors(errs.into_vec())),
+    };
 
-    if !outputs.errors.is_empty() {
-      return Err(self.handle_errors(outputs.errors));
-    }
+    self.handle_warnings(bundle_output.warnings).await;
 
-    self.handle_warnings(outputs.warnings).await;
-
-    Ok(outputs.assets.into())
+    Ok(bundle_output.assets.into())
   }
 
   #[allow(clippy::significant_drop_tightening)]
@@ -169,8 +174,8 @@ impl Bundler {
   }
 
   #[allow(clippy::significant_drop_tightening)]
-  pub async fn watch_impl(&self) -> napi::Result<BindingWatcher> {
-    let watcher = handle_result(NativeBundler::watch(Arc::clone(&self.inner)).await)?;
+  pub fn watch_impl(&self) -> napi::Result<BindingWatcher> {
+    let watcher = handle_result(NativeBundler::watch(Arc::clone(&self.inner)))?;
     Ok(BindingWatcher::new(watcher))
   }
 
@@ -187,22 +192,25 @@ impl Bundler {
     Ok(output.assets.into())
   }
 
-  fn handle_errors(&self, errs: Vec<BuildDiagnostic>) -> napi::Error {
-    errs.into_iter().for_each(|err| {
-      eprintln!(
-        "{}",
-        err.into_diagnostic_with(&DiagnosticOptions { cwd: self.cwd.clone() }).to_color_string()
-      );
-    });
-    napi::Error::from_reason("Build failed")
+  #[allow(clippy::significant_drop_tightening)]
+  pub async fn get_closed_impl(&self) -> napi::Result<bool> {
+    let bundler_core = self.inner.lock().await;
+
+    Ok(bundler_core.closed)
+  }
+
+  fn handle_errors(&self, errs: Vec<BuildDiagnostic>) -> BindingOutputs {
+    BindingOutputs::from_errors(errs, self.cwd.clone())
+  }
+
+  fn handle_result<T>(&self, result: BuildResult<T>) -> Result<T, BindingOutputs> {
+    result.map_err(|e| self.handle_errors(e.into_vec()))
   }
 
   #[allow(clippy::print_stdout, unused_must_use)]
   async fn handle_warnings(&self, warnings: Vec<BuildDiagnostic>) {
-    if let Some(log_level) = self.log_level {
-      if log_level == BindingLogLevel::Silent {
-        return;
-      }
+    if self.log_level == BindingLogLevel::Silent {
+      return;
     }
 
     if let Some(on_log) = self.on_log.as_ref() {

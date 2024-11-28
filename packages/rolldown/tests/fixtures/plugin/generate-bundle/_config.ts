@@ -1,7 +1,7 @@
 import { defineTest } from '@tests'
 import { expect } from 'vitest'
 import path from 'node:path'
-import type { RolldownOutputChunk } from '../../../../src'
+import type { RolldownOutputChunk } from 'rolldown'
 import { getOutputChunk } from '@tests/utils'
 
 const entry = path.join(__dirname, './main.js')
@@ -26,6 +26,10 @@ export default defineTest({
           expect(chunk.imports).toStrictEqual(['share.js'])
           expect(chunk.moduleIds).toStrictEqual([entry])
           expect(Object.keys(chunk.modules).length).toBe(1)
+          expect(Object.values(chunk.modules)[0].code).toBe(
+            '//#region main.js\nconsole.log();\n\n//#endregion',
+          )
+          expect(Object.values(chunk.modules)[0].renderedLength).toBe(46)
           // called bundle.generate()
           expect(isWrite).toBe(true)
           // Mutate chunk

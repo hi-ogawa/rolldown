@@ -52,39 +52,6 @@ x([
 +x([function () {}, function y() {}, function* () {}, function* y() {}, async function () {}, async function y() {}, async function* () {}, async function* y() {}]);
 
 ```
-## /out/stmt-fn.js
-### esbuild
-```js
-//! These should all have "no side effects"
-// @__NO_SIDE_EFFECTS__
-function a() {
-}
-// @__NO_SIDE_EFFECTS__
-function* b() {
-}
-// @__NO_SIDE_EFFECTS__
-async function c() {
-}
-// @__NO_SIDE_EFFECTS__
-async function* d() {
-}
-```
-### rolldown
-```js
-
-```
-### diff
-```diff
-===================================================================
---- esbuild	/out/stmt-fn.js
-+++ rolldown	stmt-fn.js
-@@ -1,4 +0,0 @@
--function a() {}
--function* b() {}
--async function c() {}
--async function* d() {}
-
-```
 ## /out/stmt-export-fn.js
 ### esbuild
 ```js
@@ -157,19 +124,33 @@ const c2 = /* @__NO_SIDE_EFFECTS__ */ () => {
 ### rolldown
 ```js
 
+//#region stmt-local.js
+//! Only "c0" and "c2" should have "no side effects" (Rollup only respects "const" and only for the first one)
+var v0 = function() {}, v1 = function() {};
+let l0 = function() {}, l1 = function() {};
+const c0 = /* #__NO_SIDE_EFFECTS__ */ function() {}, c1 = function() {};
+var v2 = () => {}, v3 = () => {};
+let l2 = () => {}, l3 = () => {};
+const c2 = /* #__NO_SIDE_EFFECTS__ */ () => {}, c3 = () => {};
+
+//#endregion
 ```
 ### diff
 ```diff
 ===================================================================
 --- esbuild	/out/stmt-local.js
 +++ rolldown	stmt-local.js
-@@ -1,6 +0,0 @@
--var v0 = function () {}, v1 = function () {};
+@@ -1,6 +1,6 @@
+ var v0 = function () {}, v1 = function () {};
 -let l0 = function () {}, l1 = function () {};
 -const c0 = function () {}, c1 = function () {};
--var v2 = () => {}, v3 = () => {};
++var l0 = function () {}, l1 = function () {};
++var c0 = function () {}, c1 = function () {};
+ var v2 = () => {}, v3 = () => {};
 -let l2 = () => {}, l3 = () => {};
 -const c2 = () => {}, c3 = () => {};
++var l2 = () => {}, l3 = () => {};
++var c2 = () => {}, c3 = () => {};
 
 ```
 ## /out/stmt-export-local.js

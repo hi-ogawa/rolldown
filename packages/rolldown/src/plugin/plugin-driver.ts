@@ -1,20 +1,23 @@
 import { getLogHandler, normalizeLog } from '../log/logHandler'
 import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_WARN } from '../log/logging'
-import { Plugin, RolldownPluginRec } from './'
+import { Plugin } from './'
 import { error, logPluginError } from '../log/logs'
-import { NormalizedInputOptions } from '../options/normalized-input-options'
 import { RollupError } from '../rollup'
 import { normalizeHook } from '../utils/normalize-hook'
-import { InputOptions, OutputOptions, VERSION } from '..'
+import { InputOptions, OutputOptions, RolldownPlugin, VERSION } from '..'
 import { getLogger, getOnLog } from '../log/logger'
-import { BuiltinPlugin } from './builtin-plugin'
+import { BuiltinPlugin } from '../builtin-plugin/constructors'
+import { normalizePluginOption } from '../utils/normalize-plugin-option'
 
 export class PluginDriver {
   public async callOptionsHook(
     inputOptions: InputOptions,
   ): Promise<InputOptions> {
     const logLevel = inputOptions.logLevel || LOG_LEVEL_INFO
-    const plugins = getObjectPlugins(inputOptions.plugins ?? [])
+    const plugins = getSortedPlugins(
+      'options',
+      getObjectPlugins(await normalizePluginOption(inputOptions.plugins)),
+    )
     const logger = getLogger(
       plugins,
       getOnLog(inputOptions, logLevel),
@@ -70,12 +73,15 @@ export class PluginDriver {
   }
 
   public callOutputOptionsHook(
-    inputOptions: NormalizedInputOptions,
+    rawPlugins: RolldownPlugin[],
     outputOptions: OutputOptions,
   ): OutputOptions {
-    const plugins = getObjectPlugins(inputOptions.plugins)
+    const sortedPlugins = getSortedPlugins(
+      'outputOptions',
+      getObjectPlugins(rawPlugins),
+    )
 
-    for (const plugin of plugins) {
+    for (const plugin of sortedPlugins) {
       const options = plugin.outputOptions
       if (options) {
         const { handler } = normalizeHook(options)
@@ -91,8 +97,11 @@ export class PluginDriver {
   }
 }
 
-export function getObjectPlugins(plugins: RolldownPluginRec[]): Plugin[] {
+export function getObjectPlugins(plugins: RolldownPlugin[]): Plugin[] {
   return plugins.filter((plugin) => {
+    if (!plugin) {
+      return undefined
+    }
     if ('_parallel' in plugin) {
       return undefined
     }
@@ -101,4 +110,30 @@ export function getObjectPlugins(plugins: RolldownPluginRec[]): Plugin[] {
     }
     return plugin
   }) as Plugin[]
+}
+
+export function getSortedPlugins(
+  hookName: 'options' | 'outputOptions' | 'onLog',
+  plugins: readonly Plugin[],
+): Plugin[] {
+  const pre: Plugin[] = []
+  const normal: Plugin[] = []
+  const post: Plugin[] = []
+  for (const plugin of plugins) {
+    const hook = plugin[hookName]
+    if (hook) {
+      if (typeof hook === 'object') {
+        if (hook.order === 'pre') {
+          pre.push(plugin)
+          continue
+        }
+        if (hook.order === 'post') {
+          post.push(plugin)
+          continue
+        }
+      }
+      normal.push(plugin)
+    }
+  }
+  return [...pre, ...normal, ...post]
 }

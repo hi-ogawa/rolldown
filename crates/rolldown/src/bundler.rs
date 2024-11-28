@@ -20,23 +20,27 @@ use arcstr::ArcStr;
 use rolldown_common::{
   ModuleIdx, ModuleTable, NormalizedBundlerOptions, SharedFileEmitter, SymbolRefDb,
 };
+
+use rolldown_common::{NormalizedBundlerOptions, SharedFileEmitter};
 use rolldown_error::{BuildDiagnostic, BuildResult};
 use rolldown_fs::{FileSystem, OsFileSystem};
 use rolldown_plugin::{
   HookBuildEndArgs, HookRenderErrorArgs, SharedPluginDriver, __inner::SharedPluginable,
 };
+use rolldown_std_utils::OptionExt;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_chrome::FlushGuard;
 
 pub struct Bundler {
-  pub(crate) closed: bool,
-  pub(crate) options: SharedOptions,
-  pub(crate) plugin_driver: SharedPluginDriver,
+  pub closed: bool,
   pub(crate) fs: OsFileSystem,
+  pub(crate) options: SharedOptions,
   pub(crate) resolver: SharedResolver,
   pub(crate) file_emitter: SharedFileEmitter,
+  pub(crate) plugin_driver: SharedPluginDriver,
+  pub(crate) warnings: Vec<BuildDiagnostic>,
   pub(crate) _log_guard: Option<FlushGuard>,
   pub(crate) previous_module_table: ModuleTable,
   pub(crate) previous_module_id_to_modules: FxHashMap<ArcStr, ModuleIdx>,
@@ -56,19 +60,26 @@ impl Bundler {
 
 impl Bundler {
   #[tracing::instrument(level = "debug", skip_all)]
-  pub async fn write(&mut self) -> Result<BundleOutput> {
+  pub async fn write(&mut self) -> BuildResult<BundleOutput> {
+    let dir = self.options.cwd.join(&self.options.dir);
+
     let mut output = self.bundle_up(/* is_write */ true).await?;
 
     self.write_file_to_disk(&output)?;
 
-    self.plugin_driver.write_bundle(&mut output.assets).await?;
+    self.plugin_driver.write_bundle(&mut output.assets, &self.options).await?;
+
+    output.warnings.append(&mut self.warnings);
 
     Ok(output)
   }
 
   #[tracing::instrument(level = "debug", skip_all)]
-  pub async fn generate(&mut self) -> Result<BundleOutput> {
-    self.bundle_up(/* is_write */ false).await
+  pub async fn generate(&mut self) -> BuildResult<BundleOutput> {
+    self.bundle_up(/* is_write */ false).await.map(|mut output| {
+      output.warnings.append(&mut self.warnings);
+      output
+    })
   }
 
   #[tracing::instrument(level = "debug", skip_all)]
@@ -83,8 +94,8 @@ impl Bundler {
     Ok(())
   }
 
-  pub async fn scan(&mut self) -> Result<BuildResult<ScanStageOutput>> {
-    self.plugin_driver.build_start().await?;
+  pub async fn scan(&mut self) -> BuildResult<ScanStageOutput> {
+    self.plugin_driver.build_start(&self.options).await?;
 
     let mut error_for_build_end_hook = None;
 
@@ -98,30 +109,15 @@ impl Bundler {
     .await
     {
       Ok(v) => v,
-      Err(err) => {
-        // TODO: So far we even call build end hooks on unhandleable errors . But should we call build end hook even for unhandleable errors?
-        error_for_build_end_hook = Some(err.to_string());
-        self
-          .plugin_driver
-          .build_end(error_for_build_end_hook.map(|error| HookBuildEndArgs { error }).as_ref())
-          .await?;
-        self.plugin_driver.close_bundle().await?;
-        return Err(err);
-      }
-    };
-
-    let scan_stage_output = match scan_stage_output {
-      Ok(v) => v,
       Err(errs) => {
-        if let Some(err_msg) = errs.first().map(ToString::to_string) {
-          error_for_build_end_hook = Some(err_msg.clone());
-        }
+        // TODO: So far we even call build end hooks on unhandleable errors . But should we call build end hook even for unhandleable errors?
+        error_for_build_end_hook = Some(errs.first().unpack_ref().to_string());
         self
           .plugin_driver
           .build_end(error_for_build_end_hook.map(|error| HookBuildEndArgs { error }).as_ref())
           .await?;
         self.plugin_driver.close_bundle().await?;
-        return Ok(Err(errs));
+        return Err(errs);
       }
     };
 
@@ -130,7 +126,7 @@ impl Bundler {
       .build_end(error_for_build_end_hook.map(|error| HookBuildEndArgs { error }).as_ref())
       .await?;
 
-    Ok(Ok(scan_stage_output))
+    Ok(scan_stage_output)
   }
 
   #[allow(clippy::unused_async)]
@@ -195,72 +191,46 @@ impl Bundler {
     Ok(())
   }
 
-  async fn try_build(&mut self) -> Result<BuildResult<LinkStageOutput>> {
-    let build_info = match self.scan().await? {
-      Ok(scan_stage_output) => scan_stage_output,
-      Err(errors) => return Ok(Err(errors)),
-    };
-    Ok(Ok(LinkStage::new(build_info, &self.options).link()))
+  async fn try_build(&mut self) -> BuildResult<LinkStageOutput> {
+    let build_info = self.scan().await?;
+    Ok(LinkStage::new(build_info, &self.options).link())
   }
 
   #[allow(clippy::missing_transmute_annotations)]
-  async fn bundle_up(&mut self, is_write: bool) -> Result<BundleOutput> {
+  async fn bundle_up(&mut self, is_write: bool) -> BuildResult<BundleOutput> {
     if self.closed {
-      return Err(anyhow::anyhow!(
-        "Bundle is already closed, no more calls to 'generate' or 'write' are allowed."
-      ));
+      return Err(
+        anyhow::anyhow!(
+          "Bundle is already closed, no more calls to 'generate' or 'write' are allowed."
+        )
+        .into(),
+      );
     }
 
-    let mut link_stage_output = match self.try_build().await? {
-      Ok(v) => v,
-      Err(errors) => {
-        return Ok(BundleOutput {
-          assets: vec![],
-          warnings: vec![],
-          errors: errors.into_vec(),
-          watch_files: vec![],
-        })
-      }
-    };
+    let mut link_stage_output = self.try_build().await?;
 
-    self.plugin_driver.set_module_table(unsafe {
-      // Can't ensure the safety here. It's only a temporary solution.
-      // - We won't mutate the `module_table` in the generate stage.
-      // - We transmute the stacked reference to a static lifetime and it haven't met errors due to we happen
-      // to only need to access the `module_table` during this function call.
-      std::mem::transmute(&link_stage_output.module_table)
-    });
+    self.plugin_driver.render_start(&self.options).await?;
 
-    self.plugin_driver.render_start().await?;
+    let bundle_output =
+      GenerateStage::new(&mut link_stage_output, &self.options, &self.plugin_driver)
+        .generate()
+        .await; // Notice we don't use `?` to break the control flow here.
 
-    let mut output = {
-      let bundle_output =
-        GenerateStage::new(&mut link_stage_output, &self.options, &self.plugin_driver)
-          .generate()
-          .await;
+    if let Err(errs) = &bundle_output {
+      self
+        .plugin_driver
+        .render_error(&HookRenderErrorArgs { error: errs.first().unpack_ref().to_string() })
+        .await?;
+    }
 
-      if let Some(error) = Self::normalize_error(&bundle_output, |ret| &ret.errors) {
-        self.plugin_driver.render_error(&HookRenderErrorArgs { error }).await?;
-      }
-
-      bundle_output?
-    };
+    let mut output = bundle_output?;
 
     // Add additional files from build plugins.
     self.file_emitter.add_additional_files(&mut output.assets);
 
-    self.plugin_driver.generate_bundle(&mut output.assets, is_write).await?;
+    self.plugin_driver.generate_bundle(&mut output.assets, is_write, &self.options).await?;
 
-    output.watch_files = {
-      let mut files = link_stage_output
-        .module_table
-        .modules
-        .iter()
-        .filter_map(|m| m.as_normal().map(|m| m.id.as_str().into()))
-        .collect::<Vec<ArcStr>>();
-      files.extend(self.plugin_driver.watch_files.iter().map(|f| f.clone()));
-      files
-    };
+    output.watch_files = self.plugin_driver.watch_files.iter().map(|f| f.clone()).collect();
 
     // store last build modules info
     self.previous_module_table = link_stage_output.module_table;
@@ -271,24 +241,12 @@ impl Bundler {
     Ok(output)
   }
 
-  fn normalize_error<T>(
-    ret: &Result<T>,
-    errors_fn: impl Fn(&T) -> &[BuildDiagnostic],
-  ) -> Option<String> {
-    ret.as_ref().map_or_else(
-      |error| Some(error.to_string()),
-      |ret| errors_fn(ret).first().map(ToString::to_string),
-    )
-  }
-
   pub fn options(&self) -> &NormalizedBundlerOptions {
     &self.options
   }
 
-  pub async fn watch(bundler: Arc<Mutex<Bundler>>) -> Result<Arc<Watcher>> {
+  pub fn watch(bundler: Arc<Mutex<Bundler>>) -> Result<Arc<Watcher>> {
     let watcher = Arc::new(Watcher::new(bundler)?);
-
-    watcher.run().await?;
 
     wait_for_change(Arc::clone(&watcher));
 

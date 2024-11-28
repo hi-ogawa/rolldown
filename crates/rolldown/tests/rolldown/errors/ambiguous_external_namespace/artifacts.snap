@@ -1,5 +1,6 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Errors
 
@@ -32,16 +33,4 @@ source: crates/rolldown_testing/src/integration_test.rs
    │                ╰──── One matching export is here.
 ───╯
 
-```
-
-# Assets
-
-## main.js
-
-```js
-
-//#region main.js
-console.log(value);
-
-//#endregion
 ```

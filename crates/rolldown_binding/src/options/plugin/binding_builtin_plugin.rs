@@ -1,4 +1,4 @@
-use derivative::Derivative;
+use derive_more::Debug;
 use napi::bindgen_prelude::FromNapiValue;
 use napi::JsUnknown;
 use napi_derive::napi;
@@ -14,16 +14,23 @@ use rolldown_plugin_module_preload_polyfill::ModulePreloadPolyfillPlugin;
 use rolldown_plugin_react::ReactPlugin;
 use rolldown_plugin_replace::{ReplaceOptions, ReplacePlugin};
 use rolldown_plugin_transform::TransformPlugin;
+use rolldown_plugin_vite_resolve::{
+  FinalizeBareSpecifierCallback, FinalizeOtherSpecifiersCallback, ViteResolveOptions,
+  ViteResolvePlugin, ViteResolveResolveOptions,
+};
 use rolldown_plugin_wasm_fallback::WasmFallbackPlugin;
 use rolldown_plugin_wasm_helper::WasmHelperPlugin;
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 
+use super::types::binding_builtin_plugin_name::BindingBuiltinPluginName;
 use super::types::binding_js_or_regex::{bindingify_string_or_regex_array, BindingStringOrRegex};
+use super::types::binding_limited_boolean::BindingTrueValue;
+use crate::types::js_callback::{JsCallback, JsCallbackExt};
 
 #[allow(clippy::pub_underscore_fields)]
 #[napi(object)]
-#[derive(Deserialize, Derivative)]
+#[derive(Deserialize)]
 pub struct BindingBuiltinPlugin {
   #[napi(js_name = "__name")]
   pub __name: BindingBuiltinPluginName,
@@ -38,25 +45,6 @@ impl std::fmt::Debug for BindingBuiltinPlugin {
       .field("options", &"<JsUnknown>")
       .finish()
   }
-}
-
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Deserialize)]
-#[napi]
-pub enum BindingBuiltinPluginName {
-  WasmHelperPlugin,
-  ImportGlobPlugin,
-  DynamicImportVarsPlugin,
-  ModulePreloadPolyfillPlugin,
-  ManifestPlugin,
-  LoadFallbackPlugin,
-  TransformPlugin,
-  WasmFallbackPlugin,
-  AliasPlugin,
-  JsonPlugin,
-  BuildImportAnalysisPlugin,
-  ReplacePlugin,
-  ReactPlugin,
 }
 
 #[napi_derive::napi(object)]
@@ -145,6 +133,135 @@ pub struct BindingBuildImportAnalysisPluginConfig {
   pub is_relative_base: bool,
 }
 
+#[napi_derive::napi(object, object_to_js = false)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindingViteResolvePluginConfig {
+  pub resolve_options: BindingViteResolvePluginResolveOptions,
+  pub environment_consumer: String,
+  pub environment_name: String,
+  #[serde(with = "EitherDeserializeEnabler")]
+  #[napi(ts_type = "true | string[]")]
+  pub external: napi::Either<BindingTrueValue, Vec<String>>,
+  #[serde(with = "EitherDeserializeEnabler")]
+  #[napi(ts_type = "true | string[]")]
+  pub no_external: napi::Either<BindingTrueValue, Vec<String>>,
+  #[debug("{}", if finalize_bare_specifier.is_some() { "Some(<finalize_bare_specifier>)" } else { "None" })]
+  #[serde(skip_deserializing)]
+  #[napi(
+    ts_type = "(resolvedId: string, rawId: string, importer: string | null | undefined) => VoidNullable<string>"
+  )]
+  pub finalize_bare_specifier: Option<JsCallback<(String, String, Option<String>), Option<String>>>,
+  #[debug("{}", if finalize_bare_specifier.is_some() { "Some(<finalize_other_specifiers>)" } else { "None" })]
+  #[serde(skip_deserializing)]
+  #[napi(ts_type = "(resolvedId: string, rawId: string) => VoidNullable<string>")]
+  pub finalize_other_specifiers: Option<JsCallback<(String, String), Option<String>>>,
+
+  pub runtime: String,
+}
+
+impl From<BindingViteResolvePluginConfig> for ViteResolveOptions {
+  fn from(value: BindingViteResolvePluginConfig) -> Self {
+    let external = match value.external {
+      napi::Either::A(_) => rolldown_plugin_vite_resolve::ResolveOptionsExternal::True,
+      napi::Either::B(v) => rolldown_plugin_vite_resolve::ResolveOptionsExternal::Vec(v),
+    };
+    let no_external = match value.no_external {
+      napi::Either::A(_) => rolldown_plugin_vite_resolve::ResolveOptionsNoExternal::True,
+      napi::Either::B(v) => rolldown_plugin_vite_resolve::ResolveOptionsNoExternal::Vec(v),
+    };
+
+    Self {
+      resolve_options: value.resolve_options.into(),
+      environment_consumer: value.environment_consumer,
+      environment_name: value.environment_name,
+      external,
+      no_external,
+      finalize_bare_specifier: value.finalize_bare_specifier.map(
+        |finalizer_fn| -> Arc<FinalizeBareSpecifierCallback> {
+          Arc::new(move |resolved_id: &str, raw_id: &str, importer: Option<&str>| {
+            let finalizer_fn = Arc::clone(&finalizer_fn);
+            let resolved_id = resolved_id.to_owned();
+            let raw_id = raw_id.to_owned();
+            let importer = importer.map(ToString::to_string);
+            Box::pin(async move {
+              finalizer_fn
+                .invoke_async((resolved_id, raw_id, importer))
+                .await
+                .map_err(anyhow::Error::from)
+            })
+          })
+        },
+      ),
+      finalize_other_specifiers: value.finalize_other_specifiers.map(
+        |finalizer_fn| -> Arc<FinalizeOtherSpecifiersCallback> {
+          Arc::new(move |resolved_id: &str, raw_id: &str| {
+            let finalizer_fn = Arc::clone(&finalizer_fn);
+            let resolved_id = resolved_id.to_owned();
+            let raw_id = raw_id.to_owned();
+            Box::pin(async move {
+              finalizer_fn.invoke_async((resolved_id, raw_id)).await.map_err(anyhow::Error::from)
+            })
+          })
+        },
+      ),
+
+      runtime: value.runtime,
+    }
+  }
+}
+
+#[napi_derive::napi(object)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
+pub struct BindingViteResolvePluginResolveOptions {
+  pub is_build: bool,
+  pub is_production: bool,
+  pub as_src: bool,
+  pub prefer_relative: bool,
+  pub is_require: Option<bool>,
+  pub root: String,
+  pub scan: bool,
+
+  pub main_fields: Vec<String>,
+  pub conditions: Vec<String>,
+  pub external_conditions: Vec<String>,
+  pub extensions: Vec<String>,
+  pub try_index: bool,
+  pub try_prefix: Option<String>,
+  pub preserve_symlinks: bool,
+}
+
+impl From<BindingViteResolvePluginResolveOptions> for ViteResolveResolveOptions {
+  fn from(value: BindingViteResolvePluginResolveOptions) -> Self {
+    Self {
+      is_build: value.is_build,
+      is_production: value.is_production,
+      as_src: value.as_src,
+      prefer_relative: value.prefer_relative,
+      is_require: value.is_require,
+      root: value.root,
+      scan: value.scan,
+
+      main_fields: value.main_fields,
+      conditions: value.conditions,
+      external_conditions: value.external_conditions,
+      extensions: value.extensions,
+      try_index: value.try_index,
+      try_prefix: value.try_prefix,
+      preserve_symlinks: value.preserve_symlinks,
+    }
+  }
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "napi::bindgen_prelude::Either<BindingTrueValue, Vec<String>>")]
+enum EitherDeserializeEnabler {
+  A(BindingTrueValue),
+  B(Vec<String>),
+}
+
 impl TryFrom<BindingBuildImportAnalysisPluginConfig> for BuildImportAnalysisPlugin {
   type Error = anyhow::Error;
 
@@ -190,9 +307,9 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
 
   fn try_from(plugin: BindingBuiltinPlugin) -> Result<Self, Self::Error> {
     Ok(match plugin.__name {
-      BindingBuiltinPluginName::WasmHelperPlugin => Arc::new(WasmHelperPlugin {}),
-      BindingBuiltinPluginName::WasmFallbackPlugin => Arc::new(WasmFallbackPlugin {}),
-      BindingBuiltinPluginName::ImportGlobPlugin => {
+      BindingBuiltinPluginName::WasmHelper => Arc::new(WasmHelperPlugin {}),
+      BindingBuiltinPluginName::WasmFallback => Arc::new(WasmFallbackPlugin {}),
+      BindingBuiltinPluginName::ImportGlob => {
         let config = if let Some(options) = plugin.options {
           BindingGlobImportPluginConfig::from_unknown(options)?.into()
         } else {
@@ -200,8 +317,8 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
         };
         Arc::new(ImportGlobPlugin { config })
       }
-      BindingBuiltinPluginName::DynamicImportVarsPlugin => Arc::new(DynamicImportVarsPlugin {}),
-      BindingBuiltinPluginName::ModulePreloadPolyfillPlugin => {
+      BindingBuiltinPluginName::DynamicImportVars => Arc::new(DynamicImportVarsPlugin {}),
+      BindingBuiltinPluginName::ModulePreloadPolyfill => {
         let skip = if let Some(options) = plugin.options {
           let config = BindingModulePreloadPolyfillPluginConfig::from_unknown(options)?;
           config.skip.unwrap_or_default()
@@ -210,7 +327,7 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
         };
         Arc::new(ModulePreloadPolyfillPlugin { skip })
       }
-      BindingBuiltinPluginName::ManifestPlugin => {
+      BindingBuiltinPluginName::Manifest => {
         let config = if let Some(options) = plugin.options {
           BindingManifestPluginConfig::from_unknown(options)?.into()
         } else {
@@ -218,8 +335,8 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
         };
         Arc::new(ManifestPlugin { config })
       }
-      BindingBuiltinPluginName::LoadFallbackPlugin => Arc::new(LoadFallbackPlugin {}),
-      BindingBuiltinPluginName::TransformPlugin => {
+      BindingBuiltinPluginName::LoadFallback => Arc::new(LoadFallbackPlugin {}),
+      BindingBuiltinPluginName::Transform => {
         let plugin = if let Some(options) = plugin.options {
           BindingTransformPluginConfig::from_unknown(options)?.try_into()?
         } else {
@@ -227,7 +344,7 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
         };
         Arc::new(plugin)
       }
-      BindingBuiltinPluginName::AliasPlugin => {
+      BindingBuiltinPluginName::Alias => {
         let plugin = if let Some(options) = plugin.options {
           BindingAliasPluginConfig::from_unknown(options)?.try_into()?
         } else {
@@ -236,7 +353,7 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
         Arc::new(plugin)
       }
 
-      BindingBuiltinPluginName::JsonPlugin => {
+      BindingBuiltinPluginName::Json => {
         let config = if let Some(options) = plugin.options {
           BindingJsonPluginConfig::from_unknown(options)?
         } else {
@@ -247,7 +364,7 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
           is_build: config.is_build.unwrap_or_default(),
         })
       }
-      BindingBuiltinPluginName::BuildImportAnalysisPlugin => {
+      BindingBuiltinPluginName::BuildImportAnalysis => {
         let config: BindingBuildImportAnalysisPluginConfig = if let Some(options) = plugin.options {
           BindingBuildImportAnalysisPluginConfig::from_unknown(options)?
         } else {
@@ -258,7 +375,7 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
         };
         Arc::new(BuildImportAnalysisPlugin::try_from(config)?)
       }
-      BindingBuiltinPluginName::ReplacePlugin => {
+      BindingBuiltinPluginName::Replace => {
         let config = if let Some(options) = plugin.options {
           Some(BindingReplacePluginConfig::from_unknown(options)?)
         } else {
@@ -271,10 +388,23 @@ impl TryFrom<BindingBuiltinPlugin> for Arc<dyn Pluginable> {
             delimiters: opts.delimiters.map(|raw| (raw[0].clone(), raw[1].clone())),
             prevent_assignment: opts.prevent_assignment.unwrap_or(false),
             object_guards: opts.object_guards.unwrap_or(false),
+            sourcemap: opts.sourcemap.unwrap_or(false),
           }
         })))
       }
       BindingBuiltinPluginName::ReactPlugin => Arc::new(ReactPlugin::default()),
+      BindingBuiltinPluginName::ViteResolve => {
+        let config = if let Some(options) = plugin.options {
+          BindingViteResolvePluginConfig::from_unknown(options)?
+        } else {
+          return Err(napi::Error::new(
+            napi::Status::InvalidArg,
+            "Missing options for ViteResolvePlugin",
+          ));
+        };
+
+        Arc::new(ViteResolvePlugin::new(config.into()))
+      }
     })
   }
 }
@@ -289,4 +419,5 @@ pub struct BindingReplacePluginConfig {
   pub delimiters: Option<Vec<String>>,
   pub prevent_assignment: Option<bool>,
   pub object_guards: Option<bool>,
+  pub sourcemap: Option<bool>,
 }

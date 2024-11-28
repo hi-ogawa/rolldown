@@ -1,8 +1,9 @@
 # https://github.com/stackblitz-labs/pkg.pr.new
-name: Preview Commit
+name: Publish to pkg.pr.new
 
 on:
   workflow_call:
+  workflow_dispatch:
 
 jobs:
   build:

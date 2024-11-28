@@ -1,21 +1,19 @@
-use rolldown_common::{NormalModule, NormalizedBundlerOptions};
-use rolldown_sourcemap::{collapse_sourcemaps, lines_count, RawSource, Source, SourceMapSource};
+use std::sync::Arc;
 
-use crate::types::generator::CodegenArtifact;
+use rolldown_common::{ModuleRenderOutput, NormalModule, NormalizedBundlerOptions};
+use rolldown_sourcemap::{collapse_sourcemaps, Source, SourceMapSource};
+use rolldown_utils::concat_string;
 
 pub fn render_ecma_module(
   module: &NormalModule,
   options: &NormalizedBundlerOptions,
-  render_output: CodegenArtifact,
-) -> Option<Vec<Box<dyn Source + Send>>> {
+  render_output: ModuleRenderOutput,
+) -> Option<Arc<[Box<dyn Source + Send + Sync>]>> {
   if render_output.code.is_empty() {
     None
   } else {
-    let mut sources: Vec<Box<dyn rolldown_sourcemap::Source + Send>> = vec![];
-    sources.push(Box::new(RawSource::new(format!(
-      "//#region {debug_module_id}",
-      debug_module_id = module.debug_id
-    ))));
+    let mut sources: Vec<Box<dyn rolldown_sourcemap::Source + Send + Sync>> = vec![];
+    sources.push(Box::new(concat_string!("//#region ", module.debug_id)));
 
     let enable_sourcemap = options.sourcemap.is_some() && !module.is_virtual();
 
@@ -35,17 +33,19 @@ pub fn render_ecma_module(
       };
 
       if let Some(sourcemap) = sourcemap {
-        let lines_count = lines_count(&render_output.code);
-        sources.push(Box::new(SourceMapSource::new(render_output.code, sourcemap, lines_count)));
+        sources.push(Box::new(
+          SourceMapSource::new(render_output.code, sourcemap)
+            .with_pre_compute_sourcemap_data(options.is_sourcemap_enabled()),
+        ));
       } else {
-        sources.push(Box::new(RawSource::new(render_output.code)));
+        sources.push(Box::new(render_output.code));
       }
     } else {
-      sources.push(Box::new(RawSource::new(render_output.code)));
+      sources.push(Box::new(render_output.code));
     }
 
-    sources.push(Box::new(RawSource::new("//#endregion".to_string())));
+    sources.push(Box::new("//#endregion"));
 
-    Some(sources)
+    Some(Arc::from(sources.into_boxed_slice()))
   }
 }

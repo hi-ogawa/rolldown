@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
-use derivative::Derivative;
 use serde::Deserialize;
 
 use super::binding_rendered_module::BindingRenderedModule;
 
 #[napi_derive::napi(object)]
-#[derive(Deserialize, Default, Derivative)]
+#[derive(Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
-#[derive(Debug)]
 pub struct RenderedChunk {
   // PreRenderedChunk
   pub name: String,
@@ -20,6 +18,7 @@ pub struct RenderedChunk {
   // RenderedChunk
   pub file_name: String,
   #[serde(skip)]
+  #[napi(ts_type = "Record<string, RenderedModule>")]
   pub modules: HashMap<String, BindingRenderedModule>,
   pub imports: Vec<String>,
   pub dynamic_imports: Vec<String>,

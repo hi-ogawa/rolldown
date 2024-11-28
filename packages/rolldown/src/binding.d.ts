@@ -3,6 +3,23 @@ type Nullable<T> = T | null | undefined
 type VoidNullable<T = void> = T | null | undefined | void
 export type BindingStringOrRegex = string | RegExp
 
+export interface RenderedModule {
+  readonly code: string | null
+  renderedLength: number
+}
+
+export declare class BindingBundleEndEventData {
+  output: string
+  duration: number
+}
+
+export declare class BindingCallableBuiltinPlugin {
+  constructor(plugin: BindingBuiltinPlugin)
+  resolveId(id: string, importer?: string | undefined | null, options?: BindingHookJsResolveIdOptions | undefined | null): Promise<BindingHookJsResolveIdOutput | null>
+  load(id: string): Promise<BindingHookJsLoadOutput | null>
+  watchChange(path: string, event: BindingJsWatchChangeEvent): Promise<void>
+}
+
 export declare class BindingLog {
   code: string
   message: string
@@ -16,6 +33,31 @@ export declare class BindingModuleInfo {
   dynamicallyImportedIds: Array<string>
   isEntry: boolean
   get code(): string | null
+}
+
+export declare class BindingNormalizedOptions {
+  get input(): Array<string> | Record<string, string>
+  get cwd(): string | null
+  get platform(): 'node' | 'browser' | 'neutral'
+  get shimMissingExports(): boolean
+  get name(): string | null
+  get cssEntryFilenames(): string | undefined
+  get cssChunkFilenames(): string | undefined
+  get entryFilenames(): string | undefined
+  get chunkFilenames(): string | undefined
+  get assetFilenames(): string
+  get dir(): string | null
+  get file(): string | null
+  get format(): 'es' | 'cjs' | 'app' | 'iife' | 'umd'
+  get exports(): 'default' | 'named' | 'none' | 'auto'
+  get esModule(): boolean | 'if-default-prop'
+  get inlineDynamicImports(): boolean
+  get sourcemap(): boolean | 'inline' | 'hidden'
+  get banner(): string | undefined | null | undefined
+  get footer(): string | undefined | null | undefined
+  get intro(): string | undefined | null | undefined
+  get outro(): string | undefined | null | undefined
+  get externalLiveBindings(): boolean
 }
 
 export declare class BindingOutputAsset {
@@ -32,7 +74,7 @@ export declare class BindingOutputChunk {
   get moduleIds(): Array<string>
   get exports(): Array<string>
   get fileName(): string
-  get modules(): Record<string, BindingRenderedModule>
+  get modules(): Record<string, RenderedModule>
   get imports(): Array<string>
   get dynamicImports(): Array<string>
   get code(): string
@@ -45,15 +87,21 @@ export declare class BindingOutputChunk {
 export declare class BindingOutputs {
   get chunks(): Array<BindingOutputChunk>
   get assets(): Array<BindingOutputAsset>
+  get errors(): Array<unknown>
 }
 
 export declare class BindingPluginContext {
+  load(specifier: string, sideEffects: BindingHookSideEffects | undefined, fn: () => void): Promise<void>
   resolve(specifier: string, importer?: string | undefined | null, extraOptions?: BindingPluginContextResolveOptions | undefined | null): Promise<BindingPluginContextResolvedId | null>
   emitFile(file: BindingEmittedAsset): string
   getFileName(referenceId: string): string
   getModuleInfo(moduleId: string): BindingModuleInfo | null
-  getModuleIds(): Array<string> | null
+  getModuleIds(): Array<string>
   addWatchFile(file: string): void
+}
+
+export declare class BindingRenderedModule {
+  get code(): string | null
 }
 
 export declare class BindingTransformPluginContext {
@@ -62,17 +110,30 @@ export declare class BindingTransformPluginContext {
 
 export declare class BindingWatcher {
   close(): Promise<void>
-  on(event: BindingWatcherEvent, listener: (data?: Record<string, string>) => void): void
+  start(listener: (data: BindingWatcherEvent) => void): Promise<void>
+}
+
+export declare class BindingWatcherChangeData {
+  path: string
+  kind: string
+}
+
+export declare class BindingWatcherEvent {
+  eventKind(): string
+  watchChangeData(): BindingWatcherChangeData
+  bundleEndData(): BindingBundleEndEventData
+  bundleEventKind(): string
+  errors(): Array<unknown>
 }
 
 export declare class Bundler {
   constructor(inputOptions: BindingInputOptions, outputOptions: BindingOutputOptions, parallelPluginsRegistry?: ParallelJsPluginRegistry | undefined | null)
   write(): Promise<BindingOutputs>
   generate(): Promise<BindingOutputs>
-  scan(): Promise<void>
-  hmrRebuild(changedFiles: Array<string>): Promise<BindingOutputs>
+  scan(): Promise<BindingOutputs>
   close(): Promise<void>
   watch(): Promise<BindingWatcher>
+  get closed(): boolean
 }
 
 export declare class ParallelJsPluginRegistry {
@@ -130,21 +191,19 @@ export interface BindingBuiltinPlugin {
   options?: unknown
 }
 
-export declare enum BindingBuiltinPluginName {
-  WasmHelperPlugin = 0,
-  ImportGlobPlugin = 1,
-  DynamicImportVarsPlugin = 2,
-  ModulePreloadPolyfillPlugin = 3,
-  ManifestPlugin = 4,
-  LoadFallbackPlugin = 5,
-  TransformPlugin = 6,
-  WasmFallbackPlugin = 7,
-  AliasPlugin = 8,
-  JsonPlugin = 9,
-  BuildImportAnalysisPlugin = 10,
-  ReplacePlugin = 11,
-  ReactPlugin = 12
-}
+export type BindingBuiltinPluginName =  'builtin:wasm-helper'|
+'builtin:import-glob'|
+'builtin:dynamic-import-vars'|
+'builtin:module-preload-polyfill'|
+'builtin:manifest'|
+'builtin:load-fallback'|
+'builtin:transform'|
+'builtin:wasm-fallback'|
+'builtin:alias'|
+'builtin:json'|
+'builtin:build-import-analysis'|
+'builtin:replace'|
+'builtin:vite-resolve';
 
 export interface BindingEmittedAsset {
   name?: string
@@ -156,6 +215,8 @@ export interface BindingEmittedAsset {
 export interface BindingExperimentalOptions {
   strictExecutionOrder?: boolean
   disableLiveBindings?: boolean
+  viteMode?: boolean
+  resolveNewUrlToAsset?: boolean
 }
 
 export interface BindingGeneralHookFilter {
@@ -166,6 +227,22 @@ export interface BindingGeneralHookFilter {
 export interface BindingGlobImportPluginConfig {
   root?: string
   restoreQueryExtension?: boolean
+}
+
+export interface BindingHookJsLoadOutput {
+  code: string
+  map?: string
+  sideEffects: boolean | 'no-treeshake'
+}
+
+export interface BindingHookJsResolveIdOptions {
+  scan?: boolean
+}
+
+export interface BindingHookJsResolveIdOutput {
+  id: string
+  external?: boolean
+  sideEffects: boolean | 'no-treeshake'
 }
 
 export interface BindingHookLoadOutput {
@@ -230,12 +307,13 @@ export interface BindingInputOptions {
   resolve?: BindingResolveOptions
   shimMissingExports?: boolean
   platform?: 'node' | 'browser' | 'neutral'
-  logLevel?: BindingLogLevel
+  logLevel: BindingLogLevel
   onLog: (logLevel: 'debug' | 'warn' | 'info', log: BindingLog) => void
   cwd: string
   treeshake?: BindingTreeshake
   moduleTypes?: Record<string, string>
   define?: Array<[string, string]>
+  dropLabels?: Array<string>
   inject?: Array<BindingInjectImportNamed | BindingInjectImportNamespace>
   experimental?: BindingExperimentalOptions
   profilerNames?: boolean
@@ -255,6 +333,10 @@ export interface BindingJsonSourcemap {
   sources?: Array<string | undefined | null>
   sourcesContent?: Array<string | undefined | null>
   names?: Array<string>
+}
+
+export interface BindingJsWatchChangeEvent {
+  event: string
 }
 
 export declare enum BindingLogLevel {
@@ -281,6 +363,12 @@ export interface BindingModulePreloadPolyfillPluginConfig {
   skip?: boolean
 }
 
+export interface BindingModuleSideEffectsRule {
+  test?: RegExp | undefined
+  sideEffects: boolean
+  external?: boolean | undefined
+}
+
 export interface BindingNotifyOption {
   pollInterval?: number
   compareContents?: boolean
@@ -288,9 +376,11 @@ export interface BindingNotifyOption {
 
 export interface BindingOutputOptions {
   name?: string
+  assetFileNames?: string
   entryFileNames?: string | ((chunk: PreRenderedChunk) => string)
   chunkFileNames?: string | ((chunk: PreRenderedChunk) => string)
-  assetFileNames?: string
+  cssEntryFileNames?: string | ((chunk: PreRenderedChunk) => string)
+  cssChunkFileNames?: string | ((chunk: PreRenderedChunk) => string)
   banner?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
   dir?: string
   file?: string
@@ -299,8 +389,9 @@ export interface BindingOutputOptions {
   extend?: boolean
   externalLiveBindings?: boolean
   footer?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
-  format?: 'es' | 'cjs' | 'iife' | 'umd' | 'app'
-  globals?: Record<string, string>
+  format?: 'es' | 'cjs' | 'iife' | 'umd'
+  globals?: Record<string, string> | ((name: string) => string)
+  hashCharacters?: 'base64' | 'base36' | 'hex'
   inlineDynamicImports?: boolean
   intro?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
   outro?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
@@ -311,6 +402,7 @@ export interface BindingOutputOptions {
   sourcemapPathTransform?: (source: string, sourcemapPath: string) => string
   minify?: boolean
   advancedChunks?: BindingAdvancedChunksOptions
+  comments?: 'none' | 'preserve-legal'
 }
 
 export interface BindingPluginContextResolvedId {
@@ -330,7 +422,7 @@ export interface BindingPluginHookMeta {
 
 export interface BindingPluginOptions {
   name: string
-  buildStart?: (ctx: BindingPluginContext) => MaybePromise<VoidNullable>
+  buildStart?: (ctx: BindingPluginContext, opts: BindingNormalizedOptions) => MaybePromise<VoidNullable>
   buildStartMeta?: BindingPluginHookMeta
   resolveId?: (ctx: BindingPluginContext, specifier: string, importer: Nullable<string>, options: BindingHookResolveIdExtraArgs) => MaybePromise<VoidNullable<BindingHookResolveIdOutput>>
   resolveIdMeta?: BindingPluginHookMeta
@@ -347,17 +439,17 @@ export interface BindingPluginOptions {
   moduleParsedMeta?: BindingPluginHookMeta
   buildEnd?: (ctx: BindingPluginContext, error: Nullable<string>) => MaybePromise<VoidNullable>
   buildEndMeta?: BindingPluginHookMeta
-  renderChunk?: (ctx: BindingPluginContext, code: string, chunk: RenderedChunk) => MaybePromise<VoidNullable<BindingHookRenderChunkOutput>>
+  renderChunk?: (ctx: BindingPluginContext, code: string, chunk: RenderedChunk, opts: BindingNormalizedOptions) => MaybePromise<VoidNullable<BindingHookRenderChunkOutput>>
   renderChunkMeta?: BindingPluginHookMeta
   augmentChunkHash?: (ctx: BindingPluginContext, chunk: RenderedChunk) => MaybePromise<void | string>
   augmentChunkHashMeta?: BindingPluginHookMeta
-  renderStart?: (ctx: BindingPluginContext) => void
+  renderStart?: (ctx: BindingPluginContext, opts: BindingNormalizedOptions) => void
   renderStartMeta?: BindingPluginHookMeta
   renderError?: (ctx: BindingPluginContext, error: string) => void
   renderErrorMeta?: BindingPluginHookMeta
-  generateBundle?: (ctx: BindingPluginContext, bundle: BindingOutputs, isWrite: boolean) => MaybePromise<VoidNullable<JsChangedOutputs>>
+  generateBundle?: (ctx: BindingPluginContext, bundle: BindingOutputs, isWrite: boolean, opts: BindingNormalizedOptions) => MaybePromise<VoidNullable<JsChangedOutputs>>
   generateBundleMeta?: BindingPluginHookMeta
-  writeBundle?: (ctx: BindingPluginContext, bundle: BindingOutputs) => MaybePromise<VoidNullable<JsChangedOutputs>>
+  writeBundle?: (ctx: BindingPluginContext, bundle: BindingOutputs, opts: BindingNormalizedOptions) => MaybePromise<VoidNullable<JsChangedOutputs>>
   writeBundleMeta?: BindingPluginHookMeta
   closeBundle?: (ctx: BindingPluginContext) => MaybePromise<VoidNullable>
   closeBundleMeta?: BindingPluginHookMeta
@@ -385,15 +477,12 @@ export interface BindingPluginWithIndex {
   plugin: BindingPluginOptions
 }
 
-export interface BindingRenderedModule {
-  code?: string
-}
-
 export interface BindingReplacePluginConfig {
   values: Record<string, string>
   delimiters?: [string, string]
   preventAssignment?: boolean
   objectGuards?: boolean
+  sourcemap?: boolean
 }
 
 export interface BindingResolveOptions {
@@ -428,19 +517,40 @@ export interface BindingTransformPluginConfig {
   include?: Array<BindingStringOrRegex>
   exclude?: Array<BindingStringOrRegex>
   jsxInject?: string
-  reactRefresh?: boolean
   targets?: string
 }
 
 export interface BindingTreeshake {
-  moduleSideEffects: string
+  moduleSideEffects: boolean | BindingModuleSideEffectsRule[]
+  annotations?: boolean
 }
 
-export declare enum BindingWatcherEvent {
-  Close = 0,
-  Event = 1,
-  ReStart = 2,
-  Change = 3
+export interface BindingViteResolvePluginConfig {
+  resolveOptions: BindingViteResolvePluginResolveOptions
+  environmentConsumer: string
+  environmentName: string
+  external: true | string[]
+  noExternal: true | string[]
+  finalizeBareSpecifier?: (resolvedId: string, rawId: string, importer: string | null | undefined) => VoidNullable<string>
+  finalizeOtherSpecifiers?: (resolvedId: string, rawId: string) => VoidNullable<string>
+  runtime: string
+}
+
+export interface BindingViteResolvePluginResolveOptions {
+  isBuild: boolean
+  isProduction: boolean
+  asSrc: boolean
+  preferRelative: boolean
+  isRequire?: boolean
+  root: string
+  scan: boolean
+  mainFields: Array<string>
+  conditions: Array<string>
+  externalConditions: Array<string>
+  extensions: Array<string>
+  tryIndex: boolean
+  tryPrefix?: string
+  preserveSymlinks: boolean
 }
 
 export interface BindingWatchOption {
@@ -503,7 +613,7 @@ export interface JsOutputChunk {
   moduleIds: Array<string>
   exports: Array<string>
   filename: string
-  modules: Record<string, BindingRenderedModule>
+  modules: Record<string, RenderedModule>
   imports: Array<string>
   dynamicImports: Array<string>
   code: string
@@ -600,7 +710,7 @@ export interface JsxOptions {
   /**
    * Enable React Fast Refresh .
    *
-   * Conforms to the implementation in {@link https://github.com/facebook/react/tree/main/packages/react-refresh}
+   * Conforms to the implementation in {@link https://github.com/facebook/react/tree/v18.3.1/packages/react-refresh}
    *
    * @default false
    */
@@ -642,7 +752,7 @@ export interface RenderedChunk {
   moduleIds: Array<string>
   exports: Array<string>
   fileName: string
-  modules: Record<string, BindingRenderedModule>
+  modules: Record<string, RenderedModule>
   imports: Array<string>
   dynamicImports: Array<string>
 }
@@ -700,6 +810,21 @@ export interface TransformOptions {
   typescript?: TypeScriptOptions
   /** Configure how TSX and JSX are transformed. */
   jsx?: JsxOptions
+  /**
+   * Sets the target environment for the generated JavaScript.
+   *
+   * The lowest target is `es2015`.
+   *
+   * Example:
+   *
+   * * 'es2015'
+   * * ['es2020', 'chrome58', 'edge16', 'firefox57', 'node12', 'safari11']
+   *
+   * @default `esnext` (No transformation)
+   *
+   * @see [esbuild#target](https://esbuild.github.io/api/#target)
+   */
+  target?: string | Array<string>
   /** Define Plugin */
   define?: Record<string, string>
   /** Inject Plugin */

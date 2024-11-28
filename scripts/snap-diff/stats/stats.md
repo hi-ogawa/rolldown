@@ -1,36 +1,40 @@
 # Compatibility metric
 - total: 784
-- passed: 420
-- passed ratio: 53.57%
+- passed: 550
+- passed ratio: 70.15%
+# Compatibility metric without not supported case
+- total: 720
+- passed: 550
+- passed ratio: 76.39%
 # Compatibility metric details
 ## dce
 - total: 113
-- passed: 75
-- passed ratio: 66.37%
+- passed: 93
+- passed ratio: 82.30%
 ## default
 - total: 254
-- passed: 136
-- passed ratio: 53.54%
+- passed: 173
+- passed ratio: 68.11%
 ## glob
 - total: 9
 - passed: 1
 - passed ratio: 11.11%
 ## importstar
 - total: 76
-- passed: 63
-- passed ratio: 82.89%
+- passed: 70
+- passed ratio: 92.11%
 ## importstar_ts
 - total: 23
 - passed: 23
 - passed ratio: 100.00%
 ## loader
 - total: 67
-- passed: 22
-- passed ratio: 32.84%
+- passed: 29
+- passed ratio: 43.28%
 ## lower
 - total: 79
-- passed: 4
-- passed ratio: 5.06%
+- passed: 58
+- passed ratio: 73.42%
 ## packagejson
 - total: 59
 - passed: 47
@@ -41,5 +45,5 @@
 - passed ratio: 91.30%
 ## ts
 - total: 81
-- passed: 28
-- passed ratio: 34.57%
+- passed: 35
+- passed ratio: 43.21%

@@ -1,31 +1,40 @@
 import { Plugin } from '../plugin'
 
-export const ENUMERATED_PLUGIN_HOOK_NAMES = [
-  // build hooks
+export const ENUMERATED_INPUT_PLUGIN_HOOK_NAMES = [
   'options',
   'buildStart',
   'resolveId',
   'load',
   'transform',
   'moduleParsed',
-  'augmentChunkHash',
   'buildEnd',
   'onLog',
   'resolveDynamicImport',
-  // generate hooks
-  'generateBundle',
+  'closeBundle',
+  'closeWatcher',
+  'watchChange',
+] as const
+
+export const ENUMERATED_OUTPUT_PLUGIN_HOOK_NAMES = [
+  'augmentChunkHash',
   'outputOptions',
   'renderChunk',
   'renderStart',
   'renderError',
   'writeBundle',
+  'generateBundle',
+] as const
+
+export const ENUMERATED_PLUGIN_HOOK_NAMES = [
+  // build hooks
+  ...ENUMERATED_INPUT_PLUGIN_HOOK_NAMES,
+  // generate hooks
+  ...ENUMERATED_OUTPUT_PLUGIN_HOOK_NAMES,
+  // addon hooks
   'footer',
   'banner',
   'intro',
   'outro',
-  'closeBundle',
-  'watchChange',
-  'closeWatcher',
 ] as const
 
 /**

@@ -1,167 +1,99 @@
-import type { PreRenderedChunk, RenderedChunk } from '../binding'
-import { z } from 'zod'
-import * as zodExt from '../utils/zod-ext'
-import { bold, underline } from '../cli/colors'
+import type { StringOrRegExp } from '../types/utils'
+import type { RenderedChunk, PreRenderedChunk } from '../binding'
+import {
+  SourcemapIgnoreListOption,
+  SourcemapPathTransformOption,
+} from '../rollup'
+import { RolldownOutputPluginOption } from '../plugin'
 
-const ModuleFormatSchema = z
-  .literal('es')
-  .or(z.literal('cjs'))
-  .or(z.literal('esm'))
-  .or(z.literal('module'))
-  .or(z.literal('commonjs'))
-  .or(z.literal('iife'))
-  .or(z.literal('umd'))
-  .or(z.literal('app'))
-  .describe(
-    `output format of the generated bundle (supports ${underline('esm')}, cjs, and iife).`,
-  )
-  .optional()
+export type ModuleFormat =
+  | 'es'
+  | 'cjs'
+  | 'esm'
+  | 'module'
+  | 'commonjs'
+  | 'iife'
+  | 'umd'
+  | 'app'
 
-const addonFunctionSchema = z
-  .function()
-  .args(zodExt.phantom<RenderedChunk>())
-  .returns(z.string().or(z.promise(z.string())))
+export type AddonFunction = (chunk: RenderedChunk) => string | Promise<string>
 
-const chunkFileNamesFunctionSchema = z
-  .function()
-  .args(zodExt.phantom<PreRenderedChunk>())
-  .returns(z.string())
+export type ChunkFileNamesFunction = (chunkInfo: PreRenderedChunk) => string
 
-const outputOptionsSchema = z.strictObject({
-  dir: z
-    .string()
-    .describe('Output directory, defaults to `dist` if `file` is not set.')
-    .optional(),
-  file: z.string().describe('Single output file').optional(),
-  exports: z
-    .literal('auto')
-    .or(z.literal('named'))
-    .or(z.literal('default'))
-    .or(z.literal('none'))
-    .describe(
-      `specify a export mode (${underline('auto')}, named, default, none)`,
-    )
-    .optional(),
-  format: ModuleFormatSchema,
-  sourcemap: z
-    .boolean()
-    .or(z.literal('inline'))
-    .or(z.literal('hidden'))
-    .describe(
-      `generate sourcemap (\`-s inline\` for inline, or ${bold('pass the `-s` on the last argument if you want to generate `.map` file')}).`,
-    )
-    .optional(),
-  sourcemapIgnoreList: z
-    .boolean()
-    .or(zodExt.phantom<SourcemapIgnoreListOption>())
-    .optional(),
-  sourcemapPathTransform: zodExt
-    .phantom<SourcemapPathTransformOption>()
-    .optional(),
-  banner: z.string().or(addonFunctionSchema).optional(),
-  footer: z.string().or(addonFunctionSchema).optional(),
-  intro: z.string().or(addonFunctionSchema).optional(),
-  outro: z.string().or(addonFunctionSchema).optional(),
-  extend: z
-    .boolean()
-    .describe('extend global variable defined by name in IIFE / UMD formats')
-    .optional(),
-  esModule: z.literal('if-default-prop').or(z.boolean()).optional(),
-  entryFileNames: z.string().or(chunkFileNamesFunctionSchema).optional(),
-  chunkFileNames: z.string().or(chunkFileNamesFunctionSchema).optional(),
-  assetFileNames: z.string().optional(),
-  minify: z.boolean().describe('minify the bundled file.').optional(),
-  name: z.string().describe('name for UMD / IIFE format outputs').optional(),
-  globals: z
-    .record(z.string())
-    .describe(
-      'global variable of UMD / IIFE dependencies (syntax: `key=value`)',
-    )
-    .optional(),
-  externalLiveBindings: z
-    .boolean()
-    .describe('external live bindings')
-    .default(true)
-    .optional(),
-  inlineDynamicImports: z
-    .boolean()
-    .describe('inline dynamic imports')
-    .default(false)
-    .optional(),
-  advancedChunks: z
-    .strictObject({
-      minSize: z.number().optional(),
-      minShareCount: z.number().optional(),
-      groups: z
-        .array(
-          z.strictObject({
-            name: z.string(),
-            test: z.string().or(z.instanceof(RegExp)).optional(),
-            priority: z.number().optional(),
-            minSize: z.number().optional(),
-            minShareCount: z.number().optional(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
-})
+export type GlobalsFunction = (name: string) => string
 
-const getAddonDescription = (
-  placement: 'bottom' | 'top',
-  wrapper: 'inside' | 'outside',
-) => {
-  return `code to insert the ${bold(placement)} of the bundled file (${bold(wrapper)} the wrapper function).`
+export interface OutputOptions {
+  dir?: string
+  file?: string
+  exports?: 'auto' | 'named' | 'default' | 'none'
+  hashCharacters?: 'base64' | 'base36' | 'hex'
+  /**
+   * Expected format of generated code.
+   * - `'es'`, `'esm'` and `'module'` are the same format, all stand for ES module.
+   * - `'cjs'` and `'commonjs'` are the same format, all stand for CommonJS module.
+   * - `'iife'` stands for [Immediately Invoked Function Expression](https://developer.mozilla.org/en-US/docs/Glossary/IIFE).
+   * - `'umd'` stands for [Universal Module Definition](https://github.com/umdjs/umd).
+   *
+   * @default 'esm'
+   */
+  format?: ModuleFormat
+  sourcemap?: boolean | 'inline' | 'hidden'
+  sourcemapIgnoreList?: boolean | SourcemapIgnoreListOption
+  sourcemapPathTransform?: SourcemapPathTransformOption
+  banner?: string | AddonFunction
+  footer?: string | AddonFunction
+  intro?: string | AddonFunction
+  outro?: string | AddonFunction
+  extend?: boolean
+  esModule?: boolean | 'if-default-prop'
+  assetFileNames?: string
+  entryFileNames?: string | ChunkFileNamesFunction
+  chunkFileNames?: string | ChunkFileNamesFunction
+  cssEntryFileNames?: string | ChunkFileNamesFunction
+  cssChunkFileNames?: string | ChunkFileNamesFunction
+  minify?: boolean
+  name?: string
+  globals?: Record<string, string> | GlobalsFunction
+  externalLiveBindings?: boolean
+  inlineDynamicImports?: boolean
+  advancedChunks?: {
+    minSize?: number
+    minShareCount?: number
+    groups?: {
+      name: string
+      test?: StringOrRegExp
+      priority?: number
+      minSize?: number
+      minShareCount?: number
+    }[]
+  }
+  /**
+   * Control comments in the output.
+   *
+   * - `none`: no comments
+   * - `preserve-legal`: preserve comments that contain `@license`, `@preserve` or starts with `//!` `/*!`
+   */
+  comments?: 'none' | 'preserve-legal'
+  plugins?: RolldownOutputPluginOption
 }
 
-export const outputCliOptionsSchema = outputOptionsSchema
-  .extend({
-    // Reject all functions in CLI
-    banner: z
-      .string()
-      .describe(getAddonDescription('top', 'outside'))
-      .optional(),
-    footer: z
-      .string()
-      .describe(getAddonDescription('bottom', 'outside'))
-      .optional(),
-    intro: z.string().describe(getAddonDescription('top', 'inside')).optional(),
-    outro: z
-      .string()
-      .describe(getAddonDescription('bottom', 'inside'))
-      .optional(),
-    // It is hard to handle the union type in json schema, so use this first.
-    esModule: z
-      .boolean()
-      .describe(
-        'always generate `__esModule` marks in non-ESM formats, defaults to `if-default-prop` (use `--no-esModule` to always disable).',
-      )
-      .optional(),
-    advancedChunks: z
-      .strictObject({
-        minSize: z.number().describe('minimum size of the chunk').optional(),
-        minShareCount: z
-          .number()
-          .describe('minimum share count of the chunk')
-          .optional(),
-      })
-      .optional(),
-  })
-  .omit({
-    sourcemapPathTransform: true,
-    sourcemapIgnoreList: true,
-  })
+interface OverwriteOutputOptionsForCli {
+  banner?: string
+  footer?: string
+  intro?: string
+  outro?: string
+  esModule?: boolean
+  globals?: Record<string, string>
+  advancedChunks?: {
+    minSize?: number
+    minShareCount?: number
+  }
+}
 
-export type OutputOptions = z.infer<typeof outputOptionsSchema>
-
-export type SourcemapIgnoreListOption = (
-  relativeSourcePath: string,
-  sourcemapPath: string,
-) => boolean
-
-export type SourcemapPathTransformOption = (
-  relativeSourcePath: string,
-  sourcemapPath: string,
-) => string
-
-export type ModuleFormat = z.infer<typeof ModuleFormatSchema>
+export type OutputCliOptions = Omit<
+  OutputOptions,
+  | keyof OverwriteOutputOptionsForCli
+  | 'sourcemapIgnoreList'
+  | 'sourcemapPathTransform'
+> &
+  OverwriteOutputOptionsForCli

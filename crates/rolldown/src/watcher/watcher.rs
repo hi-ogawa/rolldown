@@ -4,9 +4,10 @@ use notify::{
   event::ModifyKind, Config, RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher,
 };
 use rolldown_common::{
-  BundleEndEventData, BundleEventKind, WatcherChange, WatcherChangeKind, WatcherEvent,
-  WatcherEventData,
+  BundleEndEventData, BundleEvent, OutputsDiagnostics, WatcherChangeData, WatcherChangeKind,
+  WatcherEvent,
 };
+use rolldown_error::{BuildDiagnostic, BuildResult, ResultExt};
 use rolldown_utils::pattern_filter;
 use std::{
   path::Path,
@@ -105,28 +106,37 @@ impl Watcher {
     }
   }
 
-  pub async fn run(&self) -> Result<()> {
+  pub async fn run(&self) -> BuildResult<()> {
     let start_time = Instant::now();
     let mut bundler = self.bundler.lock().await;
-    self.emitter.emit(WatcherEvent::ReStart, WatcherEventData::default()).await?;
+    self.emitter.emit(WatcherEvent::ReStart)?;
 
     self.running.store(true, Ordering::Relaxed);
-    self.emitter.emit(WatcherEvent::Event, BundleEventKind::Start.into()).await?;
+    self.emitter.emit(WatcherEvent::Event(BundleEvent::Start))?;
 
-    self.emitter.emit(WatcherEvent::Event, BundleEventKind::BundleStart.into()).await?;
-    bundler.plugin_driver = bundler.plugin_driver.new_shared_from_self();
-    bundler.file_emitter.clear();
+    self.emitter.emit(WatcherEvent::Event(BundleEvent::BundleStart))?;
+
+    bundler.plugin_driver.clear();
 
     let output = {
       if bundler.options.watch.skip_write {
         // TODO Here should be call scan
-        bundler.generate().await?
+        bundler.generate().await
       } else {
-        bundler.write().await?
+        bundler.write().await
       }
     };
+
     let mut inner = self.inner.lock().await;
-    for file in &output.watch_files {
+    // FIXME(hyf0): probably should have a more official API/better way to get watch files
+    for file in bundler.plugin_driver.watch_files.iter() {
+      // we should skip the file that is already watched, here here some reasons:
+      // - The watching files has a ms level overhead.
+      // - Watching the same files multiple times will cost more overhead.
+      // TODO: tracking https://github.com/notify-rs/notify/issues/653
+      if self.watch_files.contains(file.as_str()) {
+        continue;
+      }
       let path = Path::new(file.as_str());
       if path.exists() {
         let normalized_path = path.relative(&bundler.options.cwd);
@@ -139,7 +149,7 @@ impl Watcher {
         )
         .inner()
         {
-          inner.watch(path, RecursiveMode::Recursive)?;
+          inner.watch(path, RecursiveMode::Recursive).map_err_to_unhandleable()?;
           self.watch_files.insert(file.clone());
         }
       }
@@ -147,20 +157,24 @@ impl Watcher {
     // The inner mutex should be dropped to avoid deadlock with bundler lock at `Watcher::close`
     std::mem::drop(inner);
 
-    self
-      .emitter
-      .emit(
-        WatcherEvent::Event,
-        BundleEventKind::BundleEnd(BundleEndEventData {
+    match output {
+      Ok(_output) => {
+        self.emitter.emit(WatcherEvent::Event(BundleEvent::BundleEnd(BundleEndEventData {
           output: bundler.options.cwd.join(&bundler.options.dir).to_string_lossy().to_string(),
-          duration: start_time.elapsed().as_millis().to_string(),
-        })
-        .into(),
-      )
-      .await?;
+          #[allow(clippy::cast_possible_truncation)]
+          duration: start_time.elapsed().as_millis() as u32,
+        })))?;
+      }
+      Err(errs) => {
+        self.emitter.emit(WatcherEvent::Event(BundleEvent::Error(OutputsDiagnostics {
+          diagnostics: errs.into_vec(),
+          cwd: bundler.options.cwd.clone(),
+        })))?;
+      }
+    }
 
     self.running.store(false, Ordering::Relaxed);
-    self.emitter.emit(WatcherEvent::Event, BundleEventKind::End.into()).await?;
+    self.emitter.emit(WatcherEvent::Event(BundleEvent::End))?;
 
     Ok(())
   }
@@ -177,27 +191,31 @@ impl Watcher {
     // The inner mutex should be dropped to avoid deadlock with bundler lock at `Watcher::run`
     std::mem::drop(inner);
     // emit close event
-    self.emitter.emit(WatcherEvent::Close, WatcherEventData::default()).await?;
+    self.emitter.emit(WatcherEvent::Close)?;
     // call close watcher hook
     let bundler = self.bundler.lock().await;
     bundler.plugin_driver.close_watcher().await?;
 
     Ok(())
   }
+
+  pub async fn start(&self) {
+    let _ = self.run().await;
+  }
 }
 
 pub async fn on_change(watcher: &Arc<Watcher>, path: &str, kind: WatcherChangeKind) {
   let _ = watcher
     .emitter
-    .emit(WatcherEvent::Change, WatcherChange { path: path.into(), kind }.into())
-    .await
+    .emit(WatcherEvent::Change(WatcherChangeData { path: path.into(), kind }))
     .map_err(|e| eprintln!("Rolldown internal error: {e:?}"));
   let bundler = watcher.bundler.lock().await;
-  let _ = bundler
-    .plugin_driver
-    .watch_change(path, kind)
-    .await
-    .map_err(|e| eprintln!("Rolldown internal error: {e:?}"));
+  let _ = bundler.plugin_driver.watch_change(path, kind).await.map_err(|e| {
+    watcher.emitter.emit(WatcherEvent::Event(BundleEvent::Error(OutputsDiagnostics {
+      diagnostics: vec![BuildDiagnostic::unhandleable_error(e)],
+      cwd: bundler.options.cwd.clone(),
+    })))
+  });
 }
 
 pub fn wait_for_change(watcher: Arc<Watcher>) {

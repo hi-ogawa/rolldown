@@ -8,6 +8,7 @@ use crate::{
 };
 
 pub mod ambiguous_external_namespace;
+pub mod assign_to_import;
 pub mod circular_dependency;
 pub mod commonjs_variable_in_esm;
 pub mod eval;
@@ -16,8 +17,10 @@ pub mod external_entry;
 pub mod forbid_const_assign;
 pub mod illegal_identifier_as_name;
 pub mod import_is_undefined;
+pub mod invalid_define_config;
 pub mod invalid_export_option;
 pub mod invalid_option;
+pub mod json_parse;
 pub mod missing_export;
 pub mod missing_global_name;
 pub mod missing_name_option_for_iife_export;
@@ -31,6 +34,7 @@ pub mod unloadable_dependency;
 pub mod unresolved_entry;
 pub mod unresolved_import;
 pub mod unresolved_import_treated_as_external;
+pub mod unsupported_feature;
 
 pub trait BuildEvent: Debug + Sync + Send {
   fn kind(&self) -> EventKind;
@@ -52,10 +56,7 @@ where
 // --- TODO(hyf0): These errors are only for compatibility with legacy code. They should be replaced with more specific errors.
 
 #[derive(Debug)]
-pub struct NapiError {
-  pub status: String,
-  pub reason: String,
-}
+pub struct NapiError {}
 
 impl BuildEvent for NapiError {
   fn kind(&self) -> EventKind {
@@ -63,7 +64,7 @@ impl BuildEvent for NapiError {
   }
 
   fn message(&self, _opts: &DiagnosticOptions) -> String {
-    format!("Napi error: {status}: {reason}", status = self.status, reason = self.reason)
+    "Napi error".into()
   }
 }
 

@@ -15,6 +15,7 @@ pub struct ResolvedId {
   pub is_external: bool,
   pub package_json: Option<Arc<PackageJson>>,
   pub side_effects: Option<HookSideEffects>,
+  pub is_external_without_side_effects: bool,
 }
 
 impl ResolvedId {
@@ -31,6 +32,18 @@ impl ResolvedId {
       format!("(ignored) {stable}")
     } else {
       stable
+    }
+  }
+
+  pub fn new_external_without_side_effects(id: ArcStr) -> Self {
+    Self {
+      id,
+      ignored: false,
+      module_def_format: ModuleDefFormat::Unknown,
+      is_external: true,
+      package_json: None,
+      side_effects: None,
+      is_external_without_side_effects: true,
     }
   }
 }

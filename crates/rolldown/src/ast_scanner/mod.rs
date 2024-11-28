@@ -1,10 +1,14 @@
+pub mod dynamic_import;
 pub mod impl_visit;
+mod import_assign_analyzer;
+mod new_url;
 pub mod side_effect_detector;
 
 use arcstr::ArcStr;
+use oxc::ast::ast::MemberExpression;
 use oxc::ast::{ast, AstKind};
-use oxc::index::IndexVec;
-use oxc::semantic::{Reference, ReferenceId, SymbolTable};
+use oxc::semantic::{Reference, ReferenceId, ScopeId, SymbolTable};
+use oxc::span::SPAN;
 use oxc::{
   ast::{
     ast::{
@@ -16,6 +20,8 @@ use oxc::{
   semantic::SymbolId,
   span::{CompactStr, GetSpan, Span},
 };
+use oxc_index::IndexVec;
+use rolldown_common::dynamic_import_usage::{DynamicImportExportsUsage, DynamicImportUsageInfo};
 use rolldown_common::{
   AstScopes, EcmaModuleAstUsage, ExportsKind, ImportKind, ImportRecordIdx, ImportRecordMeta,
   LocalExport, MemberExprRef, ModuleDefFormat, ModuleId, ModuleIdx, NamedImport, RawImportRecord,
@@ -24,10 +30,13 @@ use rolldown_common::{
 use rolldown_ecmascript_utils::{BindingIdentifierExt, BindingPatternExt};
 use rolldown_error::{BuildDiagnostic, BuildResult, CjsExportSpan};
 use rolldown_rstr::Rstr;
+use rolldown_utils::concat_string;
 use rolldown_utils::ecmascript::legitimize_identifier_name;
 use rolldown_utils::path_ext::PathExt;
 use rustc_hash::{FxHashMap, FxHashSet};
 use sugar_path::SugarPath;
+
+use crate::SharedOptions;
 
 #[derive(Debug)]
 pub struct ScanResult {
@@ -53,6 +62,11 @@ pub struct ScanResult {
   /// has hashbang. Storing the span of hashbang used for hashbang codegen in chunk level
   pub hashbang_range: Option<Span>,
   pub has_star_exports: bool,
+  /// we don't know the ImportRecord related ModuleIdx yet, so use ImportRecordIdx as key
+  /// temporarily
+  pub dynamic_import_rec_exports_usage: FxHashMap<ImportRecordIdx, DynamicImportExportsUsage>,
+  /// `new URL('...', import.meta.url)`
+  pub new_url_references: FxHashMap<Span, ImportRecordIdx>,
 }
 
 pub struct AstScanner<'me, 'ast> {
@@ -79,6 +93,10 @@ pub struct AstScanner<'me, 'ast> {
   ast_usage: EcmaModuleAstUsage,
   cur_class_decl_and_symbol_referenced_ids: Option<(SymbolId, &'me Vec<ReferenceId>)>,
   visit_path: Vec<AstKind<'ast>>,
+  scope_stack: Vec<Option<ScopeId>>,
+  options: &'me SharedOptions,
+  dynamic_import_usage_info: DynamicImportUsageInfo,
+  ignore_comment: &'static str,
 }
 
 impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
@@ -92,14 +110,18 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
     source: &'me ArcStr,
     file_path: &'me ModuleId,
     comments: &'me oxc::allocator::Vec<'me, Comment>,
+    options: &'me SharedOptions,
   ) -> Self {
     let mut symbol_ref_db = SymbolRefDbForModule::new(symbol_table, idx, scope.root_scope_id());
     // This is used for converting "export default foo;" => "var default_symbol = foo;"
     let legitimized_repr_name = legitimize_identifier_name(repr_name);
     let default_export_ref = symbol_ref_db
-      .create_facade_root_symbol_ref(format!("{legitimized_repr_name}_default").into());
+      .create_facade_root_symbol_ref(concat_string!(legitimized_repr_name, "_default").into());
+    // This is used for converting "export default foo;" => "var [default_export_ref] = foo;"
+    // And we consider [default_export_ref] never get reassigned.
+    default_export_ref.flags_mut(&mut symbol_ref_db).insert(SymbolRefFlags::IS_NOT_REASSIGNED);
 
-    let name = format!("{legitimized_repr_name}_exports");
+    let name = concat_string!(legitimized_repr_name, "_exports");
     let namespace_object_ref = symbol_ref_db.create_facade_root_symbol_ref(name.into());
 
     let result = ScanResult {
@@ -123,6 +145,8 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
       self_referenced_class_decl_symbol_ids: FxHashSet::default(),
       hashbang_range: None,
       has_star_exports: false,
+      dynamic_import_rec_exports_usage: FxHashMap::default(),
+      new_url_references: FxHashMap::default(),
     };
 
     Self {
@@ -142,7 +166,21 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
       ast_usage: EcmaModuleAstUsage::empty(),
       cur_class_decl_and_symbol_referenced_ids: None,
       visit_path: vec![],
+      ignore_comment: options.experimental.get_ignore_comment(),
+      options,
+      scope_stack: vec![],
+      dynamic_import_usage_info: DynamicImportUsageInfo::default(),
     }
+  }
+
+  /// if current visit path is top level
+  pub fn is_top_level(&self) -> bool {
+    self
+      .scope_stack
+      .iter()
+      .filter_map(|item| *item)
+      .rev()
+      .all(|scope| self.scopes.get_flags(scope).is_top())
   }
 
   pub fn scan(mut self, program: &Program<'ast>) -> BuildResult<ScanResult> {
@@ -180,10 +218,10 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
     } else {
       // TODO(hyf0): Should add warnings if the module type doesn't satisfy the exports kind.
       match self.module_type {
-        ModuleDefFormat::CJS | ModuleDefFormat::CjsPackageJson => {
+        ModuleDefFormat::CJS | ModuleDefFormat::CjsPackageJson | ModuleDefFormat::Cts => {
           exports_kind = ExportsKind::CommonJs;
         }
-        ModuleDefFormat::EsmMjs | ModuleDefFormat::EsmPackageJson => {
+        ModuleDefFormat::EsmMjs | ModuleDefFormat::EsmPackageJson | ModuleDefFormat::EsmMts => {
           exports_kind = ExportsKind::Esm;
         }
         ModuleDefFormat::Unknown => {
@@ -240,22 +278,22 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
     &mut self,
     module_request: &str,
     kind: ImportKind,
-    module_request_start: u32,
+    span: Span,
     init_meta: ImportRecordMeta,
   ) -> ImportRecordIdx {
     // If 'foo' in `import ... from 'foo'` is finally a commonjs module, we will convert the import statement
     // to `var import_foo = __toESM(require_foo())`, so we create a symbol for `import_foo` here. Notice that we
     // just create the symbol. If the symbol is finally used would be determined in the linking stage.
     let namespace_ref: SymbolRef = self.result.symbol_ref_db.create_facade_root_symbol_ref(
-      format!(
-        "#LOCAL_NAMESPACE_IN_{}#",
-        itoa::Buffer::new().format(self.current_stmt_info.stmt_idx.unwrap_or_default())
+      concat_string!(
+        "#LOCAL_NAMESPACE_IN_",
+        itoa::Buffer::new().format(self.current_stmt_info.stmt_idx.unwrap_or_default()),
+        "#"
       )
       .into(),
     );
-    let rec =
-      RawImportRecord::new(Rstr::from(module_request), kind, namespace_ref, module_request_start)
-        .with_meta(init_meta);
+    let rec = RawImportRecord::new(Rstr::from(module_request), kind, namespace_ref, span, None)
+      .with_meta(init_meta);
 
     let id = self.result.import_records.push(rec);
     self.current_stmt_info.import_records.push(id);
@@ -358,7 +396,7 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
         let importee_repr =
           self.result.import_records[record_id].module_request.as_path().representative_file_name();
         let importee_repr = legitimize_identifier_name(&importee_repr);
-        format!("{importee_repr}_default").into()
+        concat_string!(importee_repr, "_default").into()
       } else {
         export_name.into()
       });
@@ -408,7 +446,7 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
     let id = self.add_import_record(
       decl.source.value.as_str(),
       ImportKind::Import,
-      decl.source.span().start,
+      decl.source.span(),
       if decl.source.span().is_empty() {
         ImportRecordMeta::IS_UNSPANNED_IMPORT
       } else {
@@ -420,7 +458,7 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
       self.add_star_re_export(exported.name().as_str(), id, decl.span);
     } else {
       // export * from '...'
-      self.result.import_records[id].meta.insert(ImportRecordMeta::IS_EXPORT_START);
+      self.result.import_records[id].meta.insert(ImportRecordMeta::IS_EXPORT_STAR);
       self.result.has_star_exports = true;
     }
     self.result.imports.insert(decl.span, id);
@@ -431,7 +469,7 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
       let record_id = self.add_import_record(
         source.value.as_str(),
         ImportKind::Import,
-        source.span().start,
+        source.span(),
         if source.span().is_empty() {
           ImportRecordMeta::IS_UNSPANNED_IMPORT
         } else {
@@ -523,7 +561,7 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
     let rec_id = self.add_import_record(
       decl.source.value.as_str(),
       ImportKind::Import,
-      decl.source.span().start,
+      decl.source.span(),
       if decl.source.span().is_empty() {
         ImportRecordMeta::IS_UNSPANNED_IMPORT
       } else {
@@ -551,11 +589,13 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
         self.result.import_records[rec_id].meta.insert(ImportRecordMeta::CONTAINS_IMPORT_DEFAULT);
       }
       ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(spec) => {
-        self.add_star_import(spec.local.expect_symbol_id(), rec_id, spec.span);
+        let symbol_id = spec.local.expect_symbol_id();
+        self.add_star_import(symbol_id, rec_id, spec.span);
         self.result.import_records[rec_id].meta.insert(ImportRecordMeta::CONTAINS_IMPORT_STAR);
       }
     });
   }
+
   fn scan_module_decl(&mut self, decl: &ModuleDeclaration<'ast>) {
     match decl {
       ast::ModuleDeclaration::ImportDeclaration(decl) => {
@@ -605,55 +645,81 @@ impl<'me, 'ast: 'me> AstScanner<'me, 'ast> {
     self.scopes.root_scope_id() == self.result.symbol_ref_db.get_scope_id(symbol_id)
   }
 
-  fn try_diagnostic_forbid_const_assign(&mut self, id_ref: &IdentifierReference) {
-    match (self.resolve_symbol_from_reference(id_ref), id_ref.reference_id.get()) {
-      (Some(symbol_id), Some(ref_id))
-        if self.result.symbol_ref_db.get_flags(symbol_id).is_const_variable() =>
-      {
-        let reference = &self.scopes.references[ref_id];
-        if reference.is_write() {
-          self.result.warnings.push(
-            BuildDiagnostic::forbid_const_assign(
-              self.file_path.to_string(),
-              self.source.clone(),
-              self.result.symbol_ref_db.get_name(symbol_id).into(),
-              self.result.symbol_ref_db.get_span(symbol_id),
-              id_ref.span(),
-            )
-            .with_severity_warning(),
-          );
+  fn try_diagnostic_forbid_const_assign(&mut self, id_ref: &IdentifierReference) -> Option<()> {
+    let ref_id = id_ref.reference_id.get()?;
+    let reference = &self.scopes.references[ref_id];
+    if reference.is_write() {
+      let symbol_id = reference.symbol_id()?;
+      if self.result.symbol_ref_db.get_flags(symbol_id).is_const_variable() {
+        self.result.errors.push(BuildDiagnostic::forbid_const_assign(
+          self.file_path.to_string(),
+          self.source.clone(),
+          self.result.symbol_ref_db.get_name(symbol_id).into(),
+          self.result.symbol_ref_db.get_span(symbol_id),
+          id_ref.span(),
+        ));
+      }
+    }
+    None
+  }
+
+  /// return a `Some(SymbolRef)` if the identifier referenced a top level `IdentBinding`
+  fn resolve_identifier_reference(
+    &mut self,
+    ident: &IdentifierReference,
+  ) -> IdentifierReferenceKind {
+    match self.resolve_symbol_from_reference(ident) {
+      Some(symbol_id) => {
+        if self.is_root_symbol(symbol_id) {
+          IdentifierReferenceKind::Root((self.idx, symbol_id).into())
+        } else {
+          IdentifierReferenceKind::Other
         }
       }
-      _ => {}
+      None => IdentifierReferenceKind::Global,
     }
   }
 
-  /// resolve the symbol from the identifier reference, and return if it is a root symbol
-  fn resolve_identifier_to_root_symbol(
-    &mut self,
-    ident: &IdentifierReference,
-  ) -> Option<SymbolRef> {
-    let symbol_id = self.resolve_symbol_from_reference(ident);
-    match symbol_id {
-      Some(symbol_id) => {
-        if self.is_root_symbol(symbol_id) {
-          Some((self.idx, symbol_id).into())
-        } else {
-          None
+  /// StaticMemberExpression or ComputeMemberExpression with static key
+  pub fn try_extract_parent_static_member_expr_chain(
+    &self,
+    max_len: usize,
+  ) -> Option<(Span, Vec<CompactStr>)> {
+    let mut span = SPAN;
+    let mut props = vec![];
+    for ancestor_ast in self.visit_path.iter().rev().take(max_len) {
+      match ancestor_ast {
+        AstKind::MemberExpression(MemberExpression::StaticMemberExpression(expr)) => {
+          span = ancestor_ast.span();
+          props.push(expr.property.name.as_str().into());
         }
-      }
-      None => {
-        // atom cmp is not `O(1)`, so if the module already contains both `module` and `exports`,
-        // don't need to check it again.
-        if !self.ast_usage.contains(EcmaModuleAstUsage::ModuleOrExports) {
-          match ident.name.as_str() {
-            "module" => self.ast_usage.insert(EcmaModuleAstUsage::ModuleRef),
-            "exports" => self.ast_usage.insert(EcmaModuleAstUsage::ExportsRef),
-            _ => {}
+        AstKind::MemberExpression(MemberExpression::ComputedMemberExpression(expr)) => {
+          if let Some(name) = expr.static_property_name() {
+            span = ancestor_ast.span();
+            props.push(name.into());
+          } else {
+            break;
           }
         }
-        None
+        _ => break,
       }
     }
+    (!props.is_empty()).then_some((span, props))
   }
+
+  // `console` in `console.log` is a global reference
+  pub fn is_global_identifier_reference(&self, ident: &IdentifierReference) -> bool {
+    let symbol_id = self.resolve_symbol_from_reference(ident);
+    symbol_id.is_none()
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum IdentifierReferenceKind {
+  /// global variable
+  Global,
+  /// top level variable
+  Root(SymbolRef),
+  /// rest
+  Other,
 }

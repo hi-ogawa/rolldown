@@ -3,7 +3,7 @@
 use oxc::{
   allocator::{self, IntoIn},
   ast::{
-    ast::{self, Expression, SimpleAssignmentTarget, VariableDeclarationKind},
+    ast::{self, Expression, ImportExpression, SimpleAssignmentTarget, VariableDeclarationKind},
     visit::walk_mut,
     VisitMut, NONE,
   },
@@ -25,16 +25,602 @@ impl<'me, 'ast> VisitMut<'ast> for ScopeHoistingFinalizer<'me, 'ast> {
     // we don't want oxc to generate hashbang statement in module level since we already handle
     // them in chunk level
     program.hashbang.take();
-    let old_body = self.alloc.take(&mut program.body);
 
     let is_namespace_referenced = matches!(self.ctx.module.exports_kind, ExportsKind::Esm)
       && self.ctx.module.stmt_infos[StmtInfoIdx::new(0)].is_included;
 
-    let mut stmt_infos = self.ctx.module.stmt_infos.iter();
-    // Skip the first statement info, which is the namespace variable declaration
-    stmt_infos.next();
+    self.remove_unused_top_level_stmt(program);
 
-    old_body.into_iter().enumerate().zip(stmt_infos).for_each(
+    // check if we need to add wrapper
+    let needs_wrapper = self
+      .ctx
+      .linking_info
+      .wrapper_stmt_info
+      .is_some_and(|idx| self.ctx.module.stmt_infos[idx].is_included);
+
+    // the order should be
+    // 1. module namespace object declaration
+    // 2. shimmed_exports
+    // 3. hoisted_names
+    // 4. wrapped module declaration
+    let declaration_of_module_namespace_object = if is_namespace_referenced {
+      let stmts = self.generate_declaration_of_module_namespace_object();
+      if needs_wrapper {
+        stmts
+      } else {
+        program.body.splice(0..0, stmts);
+        vec![]
+      }
+    } else {
+      vec![]
+    };
+
+    let mut shimmed_exports =
+      self.ctx.linking_info.shimmed_missing_exports.iter().collect::<Vec<_>>();
+    shimmed_exports.sort_unstable_by_key(|(name, _)| name.as_str());
+    shimmed_exports.into_iter().for_each(|(_name, symbol_ref)| {
+      debug_assert!(!self.ctx.module.stmt_infos.declared_stmts_by_symbol(symbol_ref).is_empty());
+      let is_included: bool = self
+        .ctx
+        .module
+        .stmt_infos
+        .declared_stmts_by_symbol(symbol_ref)
+        .iter()
+        .any(|id| self.ctx.module.stmt_infos[*id].is_included);
+      if is_included {
+        let canonical_name = self.canonical_name_for(*symbol_ref);
+        program.body.push(self.snippet.var_decl_stmt(canonical_name, self.snippet.void_zero()));
+      }
+    });
+    walk_mut::walk_program(self, program);
+
+    if needs_wrapper {
+      match self.ctx.linking_info.wrap_kind {
+        WrapKind::Cjs => {
+          let wrap_ref_name = self.canonical_name_for(self.ctx.linking_info.wrapper_ref.unwrap());
+          let commonjs_ref = if self.ctx.options.profiler_names {
+            self.canonical_ref_for_runtime("__commonJS")
+          } else {
+            self.canonical_ref_for_runtime("__commonJSMin")
+          };
+
+          let commonjs_ref_expr = self.finalized_expr_for_symbol_ref(commonjs_ref, false);
+
+          let old_body = program.body.take_in(self.alloc);
+
+          program.body.push(self.snippet.commonjs_wrapper_stmt(
+            wrap_ref_name,
+            commonjs_ref_expr,
+            old_body,
+            self.ctx.module.ast_usage,
+            self.ctx.options.profiler_names,
+            &self.ctx.module.stable_id,
+          ));
+        }
+        WrapKind::Esm => {
+          use ast::Statement;
+          let wrap_ref_name = self.canonical_name_for(self.ctx.linking_info.wrapper_ref.unwrap());
+          let esm_ref = if self.ctx.options.profiler_names {
+            self.canonical_ref_for_runtime("__esm")
+          } else {
+            self.canonical_ref_for_runtime("__esmMin")
+          };
+          let esm_ref_expr = self.finalized_expr_for_symbol_ref(esm_ref, false);
+          let old_body = program.body.take_in(self.alloc);
+
+          let mut fn_stmts = allocator::Vec::new_in(self.alloc);
+          let mut hoisted_names = vec![];
+          let mut stmts_inside_closure = allocator::Vec::new_in(self.alloc);
+
+          // Hoist all top-level "var" and "function" declarations out of the closure
+          old_body.into_iter().for_each(|mut stmt| match &mut stmt {
+            ast::Statement::VariableDeclaration(_) => {
+              if let Some(converted) =
+                self.convert_decl_to_assignment(stmt.to_declaration_mut(), &mut hoisted_names)
+              {
+                stmts_inside_closure.push(converted);
+              }
+            }
+            ast::Statement::FunctionDeclaration(_) => {
+              fn_stmts.push(stmt);
+            }
+            ast::match_module_declaration!(Statement) => {
+              if stmt.is_typescript_syntax() {
+                unreachable!(
+                  "At this point, typescript module declarations should have been removed or transformed"
+                )
+              }
+              program.body.push(stmt);
+            }
+            _ => {
+              stmts_inside_closure.push(stmt);
+            }
+          });
+          program.body.extend(declaration_of_module_namespace_object);
+          program.body.extend(fn_stmts);
+          if !hoisted_names.is_empty() {
+            let mut declarators = allocator::Vec::new_in(self.alloc);
+            declarators.reserve_exact(hoisted_names.len());
+            hoisted_names.into_iter().for_each(|var_name| {
+              declarators.push(ast::VariableDeclarator {
+                id: ast::BindingPattern {
+                  kind: ast::BindingPatternKind::BindingIdentifier(
+                    self.snippet.id(&var_name, SPAN).into_in(self.alloc),
+                  ),
+                  ..TakeIn::dummy(self.alloc)
+                },
+                kind: ast::VariableDeclarationKind::Var,
+                ..TakeIn::dummy(self.alloc)
+              });
+            });
+            program.body.push(ast::Statement::VariableDeclaration(
+              ast::VariableDeclaration {
+                declarations: declarators,
+                kind: ast::VariableDeclarationKind::Var,
+                ..TakeIn::dummy(self.alloc)
+              }
+              .into_in(self.alloc),
+            ));
+          }
+          program.body.push(self.snippet.esm_wrapper_stmt(
+            wrap_ref_name,
+            esm_ref_expr,
+            stmts_inside_closure,
+            self.ctx.options.profiler_names,
+            &self.ctx.module.stable_id,
+          ));
+        }
+        WrapKind::None => {}
+      }
+    } else {
+      program.body.extend(declaration_of_module_namespace_object);
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, ident: &mut ast::BindingIdentifier<'ast>) {
+    if let Some(symbol_id) = ident.symbol_id.get() {
+      let symbol_ref: SymbolRef = (self.ctx.id, symbol_id).into();
+
+      let canonical_ref = self.ctx.symbol_db.canonical_ref_for(symbol_ref);
+      let symbol = self.ctx.symbol_db.get(canonical_ref);
+      assert!(symbol.namespace_alias.is_none());
+      let canonical_name = self.canonical_name_for(symbol_ref);
+      if ident.name != canonical_name.as_str() {
+        ident.name = self.snippet.atom(canonical_name);
+      }
+      ident.symbol_id.get_mut().take();
+    } else {
+      // Some `BindingIdentifier`s constructed by bundler don't have `SymbolId` and we just ignore them.
+    }
+  }
+
+  fn visit_statement(&mut self, it: &mut ast::Statement<'ast>) {
+    if !self.ctx.options.drop_labels.is_empty() {
+      match it {
+        ast::Statement::LabeledStatement(stmt)
+          if self.ctx.options.drop_labels.contains(stmt.label.name.as_str()) =>
+        {
+          self.snippet.builder.move_statement(it);
+        }
+        _ => {}
+      }
+    }
+    walk_mut::walk_statement(self, it);
+  }
+
+  fn visit_identifier_reference(&mut self, ident: &mut ast::IdentifierReference) {
+    // This ensure all `IdentifierReference`s are processed
+    debug_assert!(
+      self.is_global_identifier_reference(ident) || ident.reference_id.get().is_none(),
+      "{} doesn't get processed in {}",
+      ident.name,
+      self.ctx.module.repr_name
+    );
+  }
+
+  fn visit_call_expression(&mut self, expr: &mut ast::CallExpression<'ast>) {
+    if let Some(new_expr) = expr
+      .callee
+      .as_identifier_mut()
+      .and_then(|ident_ref| self.try_rewrite_identifier_reference_expr(ident_ref, true))
+    {
+      expr.callee = new_expr;
+    }
+
+    walk_mut::walk_call_expression(self, expr);
+  }
+
+  fn visit_expression(&mut self, expr: &mut ast::Expression<'ast>) {
+    match expr {
+      ast::Expression::CallExpression(call_expr) => {
+        if let Some(new_expr) = self.try_rewrite_global_require_call(call_expr) {
+          *expr = new_expr;
+        }
+      }
+      // inline dynamic import
+      ast::Expression::ImportExpression(import_expr) => {
+        if let Some(new_expr) = self.try_rewrite_inline_dynamic_import_expr(import_expr) {
+          *expr = new_expr;
+        }
+      }
+      ast::Expression::NewExpression(new_expr) => {
+        self.handle_new_url_with_string_literal_and_import_meta_url(new_expr);
+      }
+      ast::Expression::Identifier(ident_ref) => {
+        if let Some(new_expr) = self.try_rewrite_identifier_reference_expr(ident_ref, false) {
+          *expr = new_expr;
+        }
+      }
+      _ => {
+        if let Some(new_expr) =
+          expr.as_member_expression().and_then(|expr| self.try_rewrite_member_expr(expr))
+        {
+          *expr = new_expr;
+        }
+      }
+    };
+
+    walk_mut::walk_expression(self, expr);
+  }
+
+  fn visit_object_property(&mut self, prop: &mut ast::ObjectProperty<'ast>) {
+    // Ensure `{ a }` would be rewritten to `{ a: a$1 }` instead of `{ a$1 }`
+    match &mut prop.value {
+      ast::Expression::Identifier(id_ref) if prop.shorthand => {
+        if let Some(expr) = self.generate_finalized_expr_for_reference(id_ref, false) {
+          prop.value = expr;
+          prop.shorthand = false;
+        } else {
+          id_ref.reference_id.get_mut().take();
+        }
+      }
+      _ => {}
+    }
+
+    walk_mut::walk_object_property(self, prop);
+  }
+
+  fn visit_object_pattern(&mut self, pat: &mut ast::ObjectPattern<'ast>) {
+    self.rewrite_object_pat_shorthand(pat);
+
+    walk_mut::walk_object_pattern(self, pat);
+  }
+
+  fn visit_import_expression(&mut self, expr: &mut ast::ImportExpression<'ast>) {
+    // Make sure the import expression is in correct form. If it's not, we should leave it as it is.
+    match &mut expr.source {
+      ast::Expression::StringLiteral(str) if expr.arguments.len() == 0 => {
+        let rec_id = self.ctx.module.imports[&expr.span];
+        let rec = &self.ctx.module.import_records[rec_id];
+        let importee_id = rec.resolved_module;
+        match &self.ctx.modules[importee_id] {
+          Module::Normal(_importee) => {
+            let importer_chunk_id = self.ctx.chunk_graph.module_to_chunk[self.ctx.module.idx]
+              .expect("Normal module should belong to a chunk");
+            let importer_chunk = &self.ctx.chunk_graph.chunk_table[importer_chunk_id];
+
+            let importee_chunk_id = self.ctx.chunk_graph.entry_module_to_entry_chunk[&importee_id];
+            let importee_chunk = &self.ctx.chunk_graph.chunk_table[importee_chunk_id];
+
+            let import_path = importer_chunk.import_path_for(importee_chunk);
+
+            str.value = self.snippet.atom(&import_path);
+          }
+          Module::External(importee) => {
+            if str.value != importee.name {
+              str.value = self.snippet.atom(&importee.name);
+            }
+          }
+        }
+      }
+      _ => {}
+    }
+
+    walk_mut::walk_import_expression(self, expr);
+  }
+
+  fn visit_assignment_target_property(
+    &mut self,
+    property: &mut ast::AssignmentTargetProperty<'ast>,
+  ) {
+    if let ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(prop) = property {
+      if let Some(target) =
+        self.generate_finalized_simple_assignment_target_for_reference(&prop.binding)
+      {
+        *property = ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
+          ast::AssignmentTargetPropertyProperty {
+            name: ast::PropertyKey::StaticIdentifier(
+              self.snippet.id_name(&prop.binding.name, prop.span).into_in(self.alloc),
+            ),
+            binding: if let Some(init) = prop.init.take() {
+              ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(
+                ast::AssignmentTargetWithDefault {
+                  binding: ast::AssignmentTarget::from(target),
+                  init,
+                  span: Span::default(),
+                }
+                .into_in(self.alloc),
+              )
+            } else {
+              ast::AssignmentTargetMaybeDefault::from(target)
+            },
+            span: Span::default(),
+          }
+          .into_in(self.alloc),
+        );
+      } else {
+        prop.binding.reference_id.get_mut().take();
+      }
+    }
+
+    walk_mut::walk_assignment_target_property(self, property);
+  }
+
+  fn visit_simple_assignment_target(&mut self, target: &mut SimpleAssignmentTarget<'ast>) {
+    self.rewrite_simple_assignment_target(target);
+
+    walk_mut::walk_simple_assignment_target(self, target);
+  }
+  fn visit_declaration(&mut self, it: &mut ast::Declaration<'ast>) {
+    if let Some(decl) = self.get_transformed_class_decl(it) {
+      *it = decl;
+    }
+    // deconflict class name
+    walk_mut::walk_declaration(self, it);
+  }
+}
+
+impl<'me, 'ast> ScopeHoistingFinalizer<'me, 'ast> {
+  /// rewrite toplevel `class ClassName {}` to `var ClassName = class {}`
+  fn get_transformed_class_decl(
+    &mut self,
+    it: &mut ast::Declaration<'ast>,
+  ) -> Option<ast::Declaration<'ast>> {
+    let ast::Declaration::ClassDeclaration(class) = it else {
+      return None;
+    };
+    let scope_id = class.scope_id.get()?;
+
+    if self.scope.get_parent_id(scope_id) != Some(self.scope.root_scope_id()) {
+      return None;
+    };
+
+    let id = class.id.take()?;
+
+    if let Some(symbol_id) = id.symbol_id.get() {
+      if self.ctx.module.self_referenced_class_decl_symbol_ids.contains(&symbol_id) {
+        // class T { static a = new T(); }
+        // needs to rewrite to `var T = class T { static a = new T(); }`
+        let mut id = id.clone();
+        let new_name = self.canonical_name_for((self.ctx.id, symbol_id).into());
+        id.name = self.snippet.atom(new_name);
+        class.id = Some(id);
+      }
+    }
+    Some(self.snippet.builder.declaration_variable(
+      SPAN,
+      VariableDeclarationKind::Var,
+      self.snippet.builder.vec1(self.snippet.builder.variable_declarator(
+        SPAN,
+        VariableDeclarationKind::Var,
+        self.snippet.builder.binding_pattern(
+          ast::BindingPatternKind::BindingIdentifier(self.snippet.builder.alloc(id)),
+          NONE,
+          false,
+        ),
+        Some(Expression::ClassExpression(class.take_in(self.alloc))),
+        false,
+      )),
+      false,
+    ))
+  }
+
+  #[allow(clippy::too_many_lines, clippy::collapsible_else_if)]
+  fn try_rewrite_global_require_call(
+    &mut self,
+    call_expr: &mut ast::CallExpression<'ast>,
+  ) -> Option<Expression<'ast>> {
+    if call_expr.is_global_require_call(self.scope) && !call_expr.span.is_unspanned() {
+      //  `require` calls that can't be recognized by rolldown are ignored in scanning, so they were not stored in `NomralModule#imports`.
+      //  we just keep these `require` calls as it is
+      if let Some(rec_id) = self.ctx.module.imports.get(&call_expr.span).copied() {
+        let rec = &self.ctx.module.import_records[rec_id];
+        // use `__require` instead of `require`
+        if rec.meta.contains(ImportRecordMeta::CALL_RUNTIME_REQUIRE) {
+          *call_expr.callee.get_inner_expression_mut() =
+            self.finalized_expr_for_symbol_ref(self.canonical_ref_for_runtime("__require"), false);
+        }
+        let rewrite_ast = match &self.ctx.modules[rec.resolved_module] {
+          Module::Normal(importee) => {
+            match importee.module_type {
+              ModuleType::Json => {
+                // Nodejs treats json files as an esm module with a default export and rolldown follows this behavior.
+                // And to make sure the runtime behavior is correct, we need to rewrite `require('xxx.json')` to `require('xxx.json').default` to align with the runtime behavior of nodejs.
+
+                // Rewrite `require(...)` to `require_xxx(...)` or `(init_xxx(), __toCommonJS(xxx_exports).default)`
+                let importee_linking_info = &self.ctx.linking_infos[importee.idx];
+                let wrap_ref_name =
+                  self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
+                if matches!(importee.exports_kind, ExportsKind::CommonJs) {
+                  Some(self.snippet.call_expr_expr(wrap_ref_name))
+                } else {
+                  let ns_name = self.canonical_name_for(importee.namespace_object_ref);
+                  let to_commonjs_ref_name = self.canonical_name_for_runtime("__toCommonJS");
+                  Some(
+                    self.snippet.seq2_in_paren_expr(
+                      self.snippet.call_expr_expr(wrap_ref_name),
+                      ast::Expression::StaticMemberExpression(
+                        ast::StaticMemberExpression {
+                          object: self
+                            .snippet
+                            .call_expr_with_arg_expr(to_commonjs_ref_name, ns_name),
+                          property: self.snippet.id_name("default", SPAN),
+                          ..TakeIn::dummy(self.alloc)
+                        }
+                        .into_in(self.alloc),
+                      ),
+                    ),
+                  )
+                }
+              }
+              _ => {
+                // Rewrite `require(...)` to `require_xxx(...)` or `(init_xxx(), __toCommonJS(xxx_exports))`
+                let importee_linking_info = &self.ctx.linking_infos[importee.idx];
+
+                // `init_xxx`
+                let wrap_ref_expr = self
+                  .finalized_expr_for_symbol_ref(importee_linking_info.wrapper_ref.unwrap(), false);
+                if matches!(importee.exports_kind, ExportsKind::CommonJs) {
+                  // `init_xxx()`
+                  Some(ast::Expression::CallExpression(self.snippet.builder.alloc_call_expression(
+                    SPAN,
+                    wrap_ref_expr,
+                    NONE,
+                    self.snippet.builder.vec(),
+                    false,
+                  )))
+                } else {
+                  if rec.meta.contains(ImportRecordMeta::IS_REQUIRE_UNUSED) {
+                    // `init_xxx()`
+                    Some(ast::Expression::CallExpression(
+                      self.snippet.builder.alloc_call_expression(
+                        SPAN,
+                        wrap_ref_expr,
+                        NONE,
+                        self.snippet.builder.vec(),
+                        false,
+                      ),
+                    ))
+                  } else {
+                    // `xxx_exports`
+                    let namespace_object_ref_expr =
+                      self.finalized_expr_for_symbol_ref(importee.namespace_object_ref, false);
+                    let to_commonjs_ref = self.canonical_ref_for_runtime("__toCommonJS");
+                    // `__toCommonJS`
+                    let to_commonjs_expr =
+                      self.finalized_expr_for_symbol_ref(to_commonjs_ref, false);
+
+                    // `init_xxx()`
+                    let wrap_ref_call_expr =
+                      ast::Expression::CallExpression(self.snippet.builder.alloc_call_expression(
+                        SPAN,
+                        wrap_ref_expr,
+                        NONE,
+                        self.snippet.builder.vec(),
+                        false,
+                      ));
+
+                    // `__toCommonJS(xxx_exports)`
+                    let to_commonjs_call_expr =
+                      ast::Expression::CallExpression(self.snippet.builder.alloc_call_expression(
+                        SPAN,
+                        to_commonjs_expr,
+                        NONE,
+                        self.snippet.builder.vec1(ast::Argument::from(namespace_object_ref_expr)),
+                        false,
+                      ));
+
+                    // `(init_xxx(), __toCommonJS(xxx_exports))`
+                    Some(self.snippet.seq2_in_paren_expr(wrap_ref_call_expr, to_commonjs_call_expr))
+                  }
+                }
+              }
+            }
+          }
+          Module::External(importee) => {
+            let request_path =
+              call_expr.arguments.get_mut(0).expect("require should have an argument");
+
+            // Rewrite `require('xxx')` to `require('fs')`, if there is an alias that maps 'xxx' to 'fs'
+            *request_path = ast::Argument::StringLiteral(
+              self.snippet.alloc_string_literal(&importee.name, request_path.span()),
+            );
+            None
+          }
+        };
+        return rewrite_ast;
+      }
+    }
+    None
+  }
+
+  fn try_rewrite_inline_dynamic_import_expr(
+    &mut self,
+    import_expr: &mut ImportExpression<'ast>,
+  ) -> Option<Expression<'ast>> {
+    if self.ctx.options.inline_dynamic_imports {
+      let rec_id = self.ctx.module.imports.get(&import_expr.span)?;
+      let rec = &self.ctx.module.import_records[*rec_id];
+      let importee_id = rec.resolved_module;
+      match &self.ctx.modules[importee_id] {
+        Module::Normal(importee) => {
+          let importee_linking_info = &self.ctx.linking_infos[importee_id];
+          let new_expr = match importee_linking_info.wrap_kind {
+            WrapKind::Esm => {
+              // Rewrite `import('./foo.mjs')` to `(init_foo(), foo_exports)`
+              let importee_linking_info = &self.ctx.linking_infos[importee_id];
+
+              // `init_foo`
+              let importee_wrapper_ref_name =
+                self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
+
+              // `foo_exports`
+              let importee_namespace_name = self.canonical_name_for(importee.namespace_object_ref);
+
+              // `(init_foo(), foo_exports)`
+              Some(self.snippet.promise_resolve_then_call_expr(
+                import_expr.span,
+                self.snippet.builder.vec1(self.snippet.return_stmt(
+                  self.snippet.seq2_in_paren_expr(
+                    self.snippet.call_expr_expr(importee_wrapper_ref_name),
+                    self.snippet.id_ref_expr(importee_namespace_name, SPAN),
+                  ),
+                )),
+              ))
+            }
+            WrapKind::Cjs => {
+              //  `__toESM(require_foo())`
+              let to_esm_fn_name = self.canonical_name_for_runtime("__toESM");
+              let importee_wrapper_ref_name =
+                self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
+
+              Some(self.snippet.promise_resolve_then_call_expr(
+                import_expr.span,
+                self.snippet.builder.vec1(self.snippet.return_stmt(
+                  self.snippet.to_esm_call_with_interop(
+                    to_esm_fn_name,
+                    self.snippet.call_expr_expr(importee_wrapper_ref_name),
+                    importee.interop(),
+                  ),
+                )),
+              ))
+            }
+            WrapKind::None => {
+              // The nature of `import()` is to load the module dynamically/lazily, so imported modules would
+              // must be wrapped, so we could make sure the module is executed lazily.
+              if cfg!(debug_assertions) {
+                unreachable!()
+              }
+              None
+            }
+          };
+          return new_expr;
+        }
+        Module::External(_) => {
+          // iife format doesn't support external module
+        }
+      }
+    }
+    None
+  }
+
+  #[allow(clippy::too_many_lines)]
+  fn remove_unused_top_level_stmt(&mut self, program: &mut ast::Program<'ast>) {
+    let old_body = self.alloc.take(&mut program.body);
+
+    // the first statement info is the namespace variable declaration
+    // skip first statement info to make sure `program.body` has same index as `stmt_infos`
+    old_body.into_iter().enumerate().zip(self.ctx.module.stmt_infos.iter().skip(1)).for_each(
       |((_top_stmt_idx, mut top_stmt), stmt_info)| {
         debug_assert!(matches!(stmt_info.stmt_idx, Some(_top_stmt_idx)));
         if !stmt_info.is_included {
@@ -188,540 +774,5 @@ impl<'me, 'ast> VisitMut<'ast> for ScopeHoistingFinalizer<'me, 'ast> {
         program.body.push(top_stmt);
       },
     );
-
-    // check if we need to add wrapper
-    let needs_wrapper = self
-      .ctx
-      .linking_info
-      .wrapper_stmt_info
-      .is_some_and(|idx| self.ctx.module.stmt_infos[idx].is_included);
-
-    // the order should be
-    // 1. module namespace object declaration
-    // 2. shimmed_exports
-    // 3. hoisted_names
-    // 4. wrapped module declaration
-    let declaration_of_module_namespace_object = if is_namespace_referenced {
-      let mut stmts = self.generate_declaration_of_module_namespace_object();
-      if needs_wrapper {
-        stmts
-      } else {
-        stmts.extend(program.body.take_in(self.alloc));
-        program.body.extend(stmts);
-        vec![]
-      }
-    } else {
-      vec![]
-    };
-
-    let mut shimmed_exports =
-      self.ctx.linking_info.shimmed_missing_exports.iter().collect::<Vec<_>>();
-    shimmed_exports.sort_unstable_by_key(|(name, _)| name.as_str());
-    shimmed_exports.into_iter().for_each(|(_name, symbol_ref)| {
-      debug_assert!(!self.ctx.module.stmt_infos.declared_stmts_by_symbol(symbol_ref).is_empty());
-      let is_included: bool = self
-        .ctx
-        .module
-        .stmt_infos
-        .declared_stmts_by_symbol(symbol_ref)
-        .iter()
-        .any(|id| self.ctx.module.stmt_infos[*id].is_included);
-      if is_included {
-        let canonical_name = self.canonical_name_for(*symbol_ref);
-        program.body.push(self.snippet.var_decl_stmt(canonical_name, self.snippet.void_zero()));
-      }
-    });
-    walk_mut::walk_program(self, program);
-
-    if needs_wrapper {
-      match self.ctx.linking_info.wrap_kind {
-        WrapKind::Cjs => {
-          let wrap_ref_name = self.canonical_name_for(self.ctx.linking_info.wrapper_ref.unwrap());
-          let commonjs_ref_name = if self.ctx.options.profiler_names {
-            self.canonical_name_for_runtime("__commonJS")
-          } else {
-            self.canonical_name_for_runtime("__commonJSMin")
-          };
-
-          let old_body = program.body.take_in(self.alloc);
-
-          program.body.push(self.snippet.commonjs_wrapper_stmt(
-            wrap_ref_name,
-            commonjs_ref_name,
-            old_body,
-            self.ctx.module.ast_usage,
-            self.ctx.options.profiler_names,
-            &self.ctx.module.stable_id,
-          ));
-        }
-        WrapKind::Esm => {
-          use ast::Statement;
-          let wrap_ref_name = self.canonical_name_for(self.ctx.linking_info.wrapper_ref.unwrap());
-          let esm_ref_name = if self.ctx.options.profiler_names {
-            self.canonical_name_for_runtime("__esm")
-          } else {
-            self.canonical_name_for_runtime("__esmMin")
-          };
-          let old_body = program.body.take_in(self.alloc);
-
-          let mut fn_stmts = allocator::Vec::new_in(self.alloc);
-          let mut hoisted_names = vec![];
-          let mut stmts_inside_closure = allocator::Vec::new_in(self.alloc);
-
-          // Hoist all top-level "var" and "function" declarations out of the closure
-          old_body.into_iter().for_each(|mut stmt| match &mut stmt {
-            ast::Statement::VariableDeclaration(_) => {
-              if let Some(converted) =
-                self.convert_decl_to_assignment(stmt.to_declaration_mut(), &mut hoisted_names)
-              {
-                stmts_inside_closure.push(converted);
-              }
-            }
-            ast::Statement::FunctionDeclaration(_) => {
-              fn_stmts.push(stmt);
-            }
-            ast::match_module_declaration!(Statement) => {
-              if stmt.is_typescript_syntax() {
-                unreachable!(
-                  "At this point, typescript module declarations should have been removed or transformed"
-                )
-              }
-              program.body.push(stmt);
-            }
-            _ => {
-              stmts_inside_closure.push(stmt);
-            }
-          });
-          program.body.extend(declaration_of_module_namespace_object);
-          program.body.extend(fn_stmts);
-          if !hoisted_names.is_empty() {
-            let mut declarators = allocator::Vec::new_in(self.alloc);
-            declarators.reserve_exact(hoisted_names.len());
-            hoisted_names.into_iter().for_each(|var_name| {
-              declarators.push(ast::VariableDeclarator {
-                id: ast::BindingPattern {
-                  kind: ast::BindingPatternKind::BindingIdentifier(
-                    self.snippet.id(&var_name, SPAN).into_in(self.alloc),
-                  ),
-                  ..TakeIn::dummy(self.alloc)
-                },
-                kind: ast::VariableDeclarationKind::Var,
-                ..TakeIn::dummy(self.alloc)
-              });
-            });
-            program.body.push(ast::Statement::VariableDeclaration(
-              ast::VariableDeclaration {
-                declarations: declarators,
-                kind: ast::VariableDeclarationKind::Var,
-                ..TakeIn::dummy(self.alloc)
-              }
-              .into_in(self.alloc),
-            ));
-          }
-          program.body.push(self.snippet.esm_wrapper_stmt(
-            wrap_ref_name,
-            esm_ref_name,
-            stmts_inside_closure,
-            self.ctx.options.profiler_names,
-            &self.ctx.module.stable_id,
-          ));
-        }
-        WrapKind::None => {}
-      }
-    } else {
-      program.body.extend(declaration_of_module_namespace_object);
-    }
-  }
-
-  fn visit_binding_identifier(&mut self, ident: &mut ast::BindingIdentifier<'ast>) {
-    if let Some(symbol_id) = ident.symbol_id.get() {
-      let symbol_ref: SymbolRef = (self.ctx.id, symbol_id).into();
-
-      let canonical_ref = self.ctx.symbol_db.canonical_ref_for(symbol_ref);
-      let symbol = self.ctx.symbol_db.get(canonical_ref);
-      assert!(symbol.namespace_alias.is_none());
-      let canonical_name = self.canonical_name_for(symbol_ref);
-      if ident.name != canonical_name.as_str() {
-        ident.name = self.snippet.atom(canonical_name);
-      }
-      ident.symbol_id.get_mut().take();
-    } else {
-      // Some `BindingIdentifier`s constructed by bundler don't have `SymbolId` and we just ignore them.
-    }
-  }
-
-  fn visit_identifier_reference(&mut self, ident: &mut ast::IdentifierReference) {
-    // This ensure all `IdentifierReference`s are processed
-    debug_assert!(
-      self.is_global_identifier_reference(ident) || ident.reference_id.get().is_none(),
-      "{} doesn't get processed in {}",
-      ident.name,
-      self.ctx.module.repr_name
-    );
-  }
-
-  fn visit_call_expression(&mut self, expr: &mut ast::CallExpression<'ast>) {
-    self.try_rewrite_identifier_reference_expr(&mut expr.callee, true);
-
-    walk_mut::walk_call_expression(self, expr);
-  }
-
-  #[allow(clippy::collapsible_else_if, clippy::too_many_lines)]
-  fn visit_expression(&mut self, expr: &mut ast::Expression<'ast>) {
-    if let Some(call_expr) = expr.as_call_expression_mut() {
-      if call_expr.is_global_require_call(self.scope) && !call_expr.span.is_unspanned() {
-        //  `require` calls that can't be recognized by rolldown are ignored in scanning, so they were not stored in `NomralModule#imports`.
-        //  we just keep these `require` calls as it is
-        if let Some(rec_id) = self.ctx.module.imports.get(&call_expr.span).copied() {
-          let rec = &self.ctx.module.import_records[rec_id];
-          // use `__require` instead of `require`
-          if rec.meta.contains(ImportRecordMeta::CALL_RUNTIME_REQUIRE) {
-            *call_expr.callee.get_inner_expression_mut() =
-              self.snippet.builder.expression_identifier_reference(SPAN, "__require");
-          }
-          match &self.ctx.modules[rec.resolved_module] {
-            Module::Normal(importee) => {
-              match importee.module_type {
-                ModuleType::Json => {
-                  // Nodejs treats json files as an esm module with a default export and rolldown follows this behavior.
-                  // And to make sure the runtime behavior is correct, we need to rewrite `require('xxx.json')` to `require('xxx.json').default` to align with the runtime behavior of nodejs.
-
-                  // Rewrite `require(...)` to `require_xxx(...)` or `(init_xxx(), __toCommonJS(xxx_exports).default)`
-                  let importee_linking_info = &self.ctx.linking_infos[importee.idx];
-                  let wrap_ref_name =
-                    self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
-                  if matches!(importee.exports_kind, ExportsKind::CommonJs) {
-                    *expr = self.snippet.call_expr_expr(wrap_ref_name);
-                  } else {
-                    let ns_name = self.canonical_name_for(importee.namespace_object_ref);
-                    let to_commonjs_ref_name = self.canonical_name_for_runtime("__toCommonJS");
-                    *expr = self.snippet.seq2_in_paren_expr(
-                      self.snippet.call_expr_expr(wrap_ref_name),
-                      ast::Expression::StaticMemberExpression(
-                        ast::StaticMemberExpression {
-                          object: self
-                            .snippet
-                            .call_expr_with_arg_expr(to_commonjs_ref_name, ns_name),
-                          property: self.snippet.id_name("default", SPAN),
-                          ..TakeIn::dummy(self.alloc)
-                        }
-                        .into_in(self.alloc),
-                      ),
-                    );
-                  }
-                }
-                _ => {
-                  // Rewrite `require(...)` to `require_xxx(...)` or `(init_xxx(), __toCommonJS(xxx_exports))`
-                  let importee_linking_info = &self.ctx.linking_infos[importee.idx];
-                  let wrap_ref_name =
-                    self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
-                  if matches!(importee.exports_kind, ExportsKind::CommonJs) {
-                    *expr = self.snippet.call_expr_expr(wrap_ref_name);
-                  } else {
-                    if rec.meta.contains(ImportRecordMeta::IS_REQUIRE_UNUSED) {
-                      *expr = self.snippet.call_expr_expr(wrap_ref_name);
-                    } else {
-                      let ns_name = self.canonical_name_for(importee.namespace_object_ref);
-                      let to_commonjs_ref_name = self.canonical_name_for_runtime("__toCommonJS");
-                      *expr = self.snippet.seq2_in_paren_expr(
-                        self.snippet.call_expr_expr(wrap_ref_name),
-                        self.snippet.call_expr_with_arg_expr(to_commonjs_ref_name, ns_name),
-                      );
-                    }
-                  }
-                }
-              }
-            }
-            Module::External(importee) => {
-              let request_path =
-                call_expr.arguments.get_mut(0).expect("require should have an argument");
-
-              // Rewrite `require('xxx')` to `require('fs')`, if there is an alias that maps 'xxx' to 'fs'
-              *request_path = ast::Argument::StringLiteral(
-                self.snippet.alloc_string_literal(&importee.name, request_path.span()),
-              );
-            }
-          }
-        }
-      }
-    }
-
-    self.try_rewrite_identifier_reference_expr(expr, false);
-
-    // rewrite `foo_exports.bar` to `bar` directly
-    match expr {
-      Expression::StaticMemberExpression(ref inner_expr) => {
-        if let Some(resolved) =
-          self.ctx.linking_info.resolved_member_expr_refs.get(&inner_expr.span)
-        {
-          match resolved {
-            Some((object_ref, props)) => {
-              let object_ref_expr = self.finalized_expr_for_symbol_ref(*object_ref, false);
-
-              let replaced_expr =
-                self.snippet.member_expr_or_ident_ref(object_ref_expr, props, inner_expr.span);
-              *expr = replaced_expr;
-            }
-            None => {
-              *expr = self.snippet.void_zero();
-            }
-          }
-        };
-      }
-      _ => {}
-    };
-
-    // inline dynamic import
-    if self.ctx.options.inline_dynamic_imports {
-      if let Expression::ImportExpression(import_expr) = expr {
-        let rec_id = self.ctx.module.imports[&import_expr.span];
-        let rec = &self.ctx.module.import_records[rec_id];
-        let importee_id = rec.resolved_module;
-        match &self.ctx.modules[importee_id] {
-          Module::Normal(importee) => {
-            let importee_linking_info = &self.ctx.linking_infos[importee_id];
-            match importee_linking_info.wrap_kind {
-              WrapKind::Esm => {
-                // `(init_foo(), j)`
-                let importee_linking_info = &self.ctx.linking_infos[importee_id];
-                let importee_wrapper_ref_name =
-                  self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
-                let importee_namespace_name =
-                  self.canonical_name_for(importee.namespace_object_ref);
-                *expr = self.snippet.promise_resolve_then_call_expr(
-                  expr.span(),
-                  self.snippet.builder.vec1(self.snippet.return_stmt(
-                    self.snippet.seq2_in_paren_expr(
-                      self.snippet.call_expr_expr(importee_wrapper_ref_name),
-                      self.snippet.id_ref_expr(importee_namespace_name, SPAN),
-                    ),
-                  )),
-                );
-              }
-              WrapKind::Cjs => {
-                //  `__toESM(require_foo())`
-                let to_esm_fn_name = self.canonical_name_for_runtime("__toESM");
-                let importee_wrapper_ref_name =
-                  self.canonical_name_for(importee_linking_info.wrapper_ref.unwrap());
-
-                *expr = self.snippet.promise_resolve_then_call_expr(
-                  expr.span(),
-                  self.snippet.builder.vec1(self.snippet.return_stmt(
-                    self.snippet.to_esm_call_with_interop(
-                      to_esm_fn_name,
-                      self.snippet.call_expr_expr(importee_wrapper_ref_name),
-                      importee.interop(),
-                    ),
-                  )),
-                );
-              }
-              WrapKind::None => {}
-            }
-          }
-          Module::External(_) => {
-            // iife format doesn't support external module
-          }
-        }
-        return;
-      }
-    }
-
-    walk_mut::walk_expression(self, expr);
-  }
-
-  fn visit_object_property(&mut self, prop: &mut ast::ObjectProperty<'ast>) {
-    // Ensure `{ a }` would be rewritten to `{ a: a$1 }` instead of `{ a$1 }`
-    match &mut prop.value {
-      ast::Expression::Identifier(id_ref) if prop.shorthand => {
-        if let Some(expr) = self.generate_finalized_expr_for_reference(id_ref, false) {
-          prop.value = expr;
-          prop.shorthand = false;
-        } else {
-          id_ref.reference_id.get_mut().take();
-        }
-      }
-      _ => {}
-    }
-
-    walk_mut::walk_object_property(self, prop);
-  }
-
-  fn visit_object_pattern(&mut self, pat: &mut ast::ObjectPattern<'ast>) {
-    for prop in pat.properties.iter_mut() {
-      match &mut prop.value.kind {
-        // Ensure `const { a } = ...;` will be rewritten to `const { a: a$1 } = ...` instead of `const { a$1 } = ...`
-        // Ensure `function foo({ a }) {}` will be rewritten to `function foo({ a: a$1 }) {}` instead of `function foo({ a$1 }) {}`
-        ast::BindingPatternKind::BindingIdentifier(ident) if prop.shorthand => {
-          if let Some(symbol_id) = ident.symbol_id.get() {
-            let canonical_name = self.canonical_name_for((self.ctx.id, symbol_id).into());
-            if ident.name != canonical_name.as_str() {
-              ident.name = self.snippet.atom(canonical_name);
-              prop.shorthand = false;
-            }
-            ident.symbol_id.get_mut().take();
-          }
-        }
-        // Ensure `const { a = 1 } = ...;` will be rewritten to `const { a: a$1 = 1 } = ...` instead of `const { a$1 = 1 } = ...`
-        // Ensure `function foo({ a = 1 }) {}` will be rewritten to `function foo({ a: a$1 = 1 }) {}` instead of `function foo({ a$1 = 1 }) {}`
-        ast::BindingPatternKind::AssignmentPattern(assign_pat)
-          if prop.shorthand
-            && matches!(assign_pat.left.kind, ast::BindingPatternKind::BindingIdentifier(_)) =>
-        {
-          let ast::BindingPatternKind::BindingIdentifier(ident) = &mut assign_pat.left.kind else {
-            unreachable!()
-          };
-          if let Some(symbol_id) = ident.symbol_id.get() {
-            let canonical_name = self.canonical_name_for((self.ctx.id, symbol_id).into());
-            if ident.name != canonical_name.as_str() {
-              ident.name = self.snippet.atom(canonical_name);
-              prop.shorthand = false;
-            }
-            ident.symbol_id.get_mut().take();
-          }
-        }
-        _ => {
-          // For other patterns:
-          // - `const [a] = ...` or `function foo([a]) {}`
-          // - `const { a: b } = ...` or `function foo({ a: b }) {}`
-          // - `const { a: b = 1 } = ...` or `function foo({ a: b = 1 }) {}`
-          // They could keep correct semantics after renaming, so we don't need to do anything special.
-        }
-      }
-    }
-
-    walk_mut::walk_object_pattern(self, pat);
-  }
-
-  fn visit_import_expression(&mut self, expr: &mut ast::ImportExpression<'ast>) {
-    // Make sure the import expression is in correct form. If it's not, we should leave it as it is.
-    match &mut expr.source {
-      ast::Expression::StringLiteral(str) if expr.arguments.len() == 0 => {
-        let rec_id = self.ctx.module.imports[&expr.span];
-        let rec = &self.ctx.module.import_records[rec_id];
-        let importee_id = rec.resolved_module;
-        match &self.ctx.modules[importee_id] {
-          Module::Normal(_importee) => {
-            let importer_chunk_id = self.ctx.chunk_graph.module_to_chunk[self.ctx.module.idx]
-              .expect("Normal module should belong to a chunk");
-            let importer_chunk = &self.ctx.chunk_graph.chunk_table[importer_chunk_id];
-
-            let importee_chunk_id = self.ctx.chunk_graph.entry_module_to_entry_chunk[&importee_id];
-            let importee_chunk = &self.ctx.chunk_graph.chunk_table[importee_chunk_id];
-
-            let import_path = importer_chunk.import_path_for(importee_chunk);
-
-            str.value = self.snippet.atom(&import_path);
-          }
-          Module::External(importee) => {
-            if str.value != importee.name {
-              str.value = self.snippet.atom(&importee.name);
-            }
-          }
-        }
-      }
-      _ => {}
-    }
-
-    walk_mut::walk_import_expression(self, expr);
-  }
-
-  fn visit_assignment_target_property(
-    &mut self,
-    property: &mut ast::AssignmentTargetProperty<'ast>,
-  ) {
-    if let ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(prop) = property {
-      if let Some(target) =
-        self.generate_finalized_simple_assignment_target_for_reference(&prop.binding)
-      {
-        *property = ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
-          ast::AssignmentTargetPropertyProperty {
-            name: ast::PropertyKey::StaticIdentifier(
-              self.snippet.id_name(&prop.binding.name, prop.span).into_in(self.alloc),
-            ),
-            binding: if let Some(init) = prop.init.take() {
-              ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(
-                ast::AssignmentTargetWithDefault {
-                  binding: ast::AssignmentTarget::from(target),
-                  init,
-                  span: Span::default(),
-                }
-                .into_in(self.alloc),
-              )
-            } else {
-              ast::AssignmentTargetMaybeDefault::from(target)
-            },
-            span: Span::default(),
-          }
-          .into_in(self.alloc),
-        );
-      } else {
-        prop.binding.reference_id.get_mut().take();
-      }
-    }
-
-    walk_mut::walk_assignment_target_property(self, property);
-  }
-
-  fn visit_simple_assignment_target(&mut self, target: &mut SimpleAssignmentTarget<'ast>) {
-    self.rewrite_simple_assignment_target(target);
-
-    walk_mut::walk_simple_assignment_target(self, target);
-  }
-
-  /// rewrite toplevel `class ClassName {}` to `var ClassName = class {}`
-  /// using this style to avoid nested if else unti we support if let chain
-  fn visit_declaration(&mut self, it: &mut ast::Declaration<'ast>) {
-    let ast::Declaration::ClassDeclaration(class) = it else {
-      walk_mut::walk_declaration(self, it);
-      return;
-    };
-
-    let Some(scope_id) = class.scope_id.get() else {
-      walk_mut::walk_declaration(self, it);
-      return;
-    };
-
-    if self.scope.get_parent_id(scope_id) != Some(self.scope.root_scope_id()) {
-      walk_mut::walk_declaration(self, it);
-      return;
-    };
-
-    // eliminat class name and transformed it into class expr
-    let Some(id) = class.id.take() else {
-      walk_mut::walk_declaration(self, it);
-      return;
-    };
-
-    if let Some(symbol_id) = id.symbol_id.get() {
-      if self.ctx.module.self_referenced_class_decl_symbol_ids.contains(&symbol_id) {
-        // class T { static a = new T(); }
-        // needs to rewrite to `var T = class T { static a = new T(); }`
-        let mut id = id.clone();
-        let new_name = self.canonical_name_for((self.ctx.id, symbol_id).into());
-        id.name = self.snippet.atom(new_name);
-        class.id = Some(id);
-      }
-    }
-
-    let var_decl = self.snippet.builder.declaration_variable(
-      SPAN,
-      VariableDeclarationKind::Var,
-      self.snippet.builder.vec1(self.snippet.builder.variable_declarator(
-        SPAN,
-        VariableDeclarationKind::Var,
-        self.snippet.builder.binding_pattern(
-          ast::BindingPatternKind::BindingIdentifier(self.snippet.builder.alloc(id)),
-          NONE,
-          false,
-        ),
-        Some(Expression::ClassExpression(class.take_in(self.alloc))),
-        false,
-      )),
-      false,
-    );
-    *it = var_decl;
-
-    // deconflict class name
-    walk_mut::walk_declaration(self, it);
   }
 }

@@ -1,17 +1,21 @@
 import type { BindingPluginContext } from '../binding'
-import type { NormalizedInputOptions } from '../options/normalized-input-options'
 import type {
   CustomPluginOptions,
   ModuleOptions,
   Plugin,
   ResolvedId,
 } from './index'
-import { MinimalPluginContext } from '../log/logger'
+import { MinimalPluginContext } from '../plugin/minimal-plugin-context'
 import { AssetSource, bindingAssetSource } from '../utils/asset-source'
 import { unimplemented, unsupported } from '../utils/misc'
 import { ModuleInfo } from '../types/module-info'
 import { PluginContextData } from './plugin-context-data'
 import { SYMBOL_FOR_RESOLVE_CALLER_THAT_SKIP_SELF } from '../constants/plugin-context'
+import { PartialNull } from '../types/utils'
+import { bindingifySideEffects } from '../utils/transform-side-effects'
+import type { LogHandler, LogLevelOption } from '../rollup'
+import { LOG_LEVEL_WARN } from '../log/logging'
+import { logCycleLoading } from '../log/logs'
 
 export interface EmittedAsset {
   type: 'asset'
@@ -34,6 +38,11 @@ export interface PrivatePluginContextResolveOptions
 }
 
 export class PluginContext extends MinimalPluginContext {
+  readonly load: (
+    options: { id: string; resolveDependencies?: boolean } & Partial<
+      PartialNull<ModuleOptions>
+    >,
+  ) => Promise<ModuleInfo>
   readonly resolve: (
     source: string,
     importer?: string,
@@ -50,12 +59,60 @@ export class PluginContext extends MinimalPluginContext {
   readonly parse: (input: string, options?: any) => any
 
   constructor(
-    options: NormalizedInputOptions,
     context: BindingPluginContext,
     plugin: Plugin,
     data: PluginContextData,
+    onLog: LogHandler,
+    logLevel: LogLevelOption,
+    currentLoadingModule?: string,
   ) {
-    super(options, plugin)
+    super(onLog, logLevel, plugin)
+    this.load = async ({ id, ...options }) => {
+      if (id === currentLoadingModule) {
+        onLog(
+          LOG_LEVEL_WARN,
+          logCycleLoading(plugin.name!, currentLoadingModule),
+        )
+      }
+      // resolveDependencies always true at rolldown
+      const moduleInfo = data.getModuleInfo(id, context)
+      if (moduleInfo && moduleInfo.code !== null /* module already parsed */) {
+        return moduleInfo
+      }
+      const rawOptions = {
+        meta: options.meta || {},
+        moduleSideEffects: options.moduleSideEffects || null,
+      }
+      data.updateModuleOption(id, rawOptions)
+
+      async function createLoadModulePromise() {
+        const loadPromise = data.loadModulePromiseMap.get(id)
+        if (loadPromise) {
+          return loadPromise
+        }
+        let resolveFn
+        // TODO: If is not resolved, we need to set a time to avoid waiting.
+        const promise = new Promise<void>((resolve, _) => {
+          resolveFn = resolve
+        })
+        data.loadModulePromiseMap.set(id, promise)
+        try {
+          await context.load(
+            id,
+            bindingifySideEffects(options.moduleSideEffects),
+            resolveFn!,
+          )
+        } finally {
+          // If the load module has failed, avoid it re-load using unresolved promise.
+          data.loadModulePromiseMap.delete(id)
+        }
+        return promise
+      }
+
+      // Here using one promise to avoid pass more callback to rust side, it only accept one callback, other will be ignored.
+      await createLoadModulePromise()
+      return data.getModuleInfo(id, context)!
+    }
     this.resolve = async (source, importer, options) => {
       let receipt: number | undefined = undefined
       if (options != null) {

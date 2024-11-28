@@ -11,7 +11,8 @@ use crate::{
 use napi::bindgen_prelude::Either;
 use rolldown::{
   AddonOutputOption, AdvancedChunksOptions, BundlerOptions, ChunkFilenamesOutputOption,
-  ExperimentalOptions, IsExternal, MatchGroup, ModuleType, OutputExports, OutputFormat, Platform,
+  ExperimentalOptions, HashCharacters, IsExternal, MatchGroup, ModuleType, OutputExports,
+  OutputFormat, Platform,
 };
 use rolldown_plugin::__inner::SharedPluginable;
 use rolldown_utils::indexmap::FxIndexMap;
@@ -32,7 +33,7 @@ fn normalize_addon_option(
   addon_option: Option<crate::options::AddonOutputOption>,
 ) -> Option<AddonOutputOption> {
   addon_option.map(move |value| {
-    AddonOutputOption::Fn(Box::new(move |chunk| {
+    AddonOutputOption::Fn(Arc::new(move |chunk| {
       let fn_js = Arc::clone(&value);
       let chunk = chunk.clone();
       Box::pin(async move {
@@ -48,13 +49,28 @@ fn normalize_chunk_file_names_option(
   option
     .map(move |value| match value {
       Either::A(str) => Ok(ChunkFilenamesOutputOption::String(str)),
-      Either::B(func) => Ok(ChunkFilenamesOutputOption::Fn(Box::new(move |chunk| {
+      Either::B(func) => Ok(ChunkFilenamesOutputOption::Fn(Arc::new(move |chunk| {
         let func = Arc::clone(&func);
         let chunk = chunk.clone();
         Box::pin(async move { func.invoke_async(chunk.into()).await.map_err(anyhow::Error::from) })
       }))),
     })
     .transpose()
+}
+
+fn normalize_globals_option(
+  option: Option<crate::options::GlobalsOutputOption>,
+) -> Option<rolldown_common::GlobalsOutputOption> {
+  option.map(move |value| match value {
+    Either::A(hash_map) => {
+      rolldown_common::GlobalsOutputOption::FxHashMap(hash_map.into_iter().collect())
+    }
+    Either::B(func) => rolldown_common::GlobalsOutputOption::Fn(Arc::new(move |name| {
+      let func = Arc::clone(&func);
+      let name = name.to_string();
+      Box::pin(async move { func.invoke_async(name).await.map_err(anyhow::Error::from) })
+    })),
+  })
 }
 
 #[allow(clippy::too_many_lines)]
@@ -84,7 +100,7 @@ pub fn normalize_binding_options(
   });
 
   let sourcemap_ignore_list = output_options.sourcemap_ignore_list.map(|ts_fn| {
-    rolldown::SourceMapIgnoreList::new(Box::new(move |source, sourcemap_path| {
+    rolldown::SourceMapIgnoreList::new(Arc::new(move |source, sourcemap_path| {
       let ts_fn = Arc::clone(&ts_fn);
       let source = source.to_string();
       let sourcemap_path = sourcemap_path.to_string();
@@ -95,7 +111,7 @@ pub fn normalize_binding_options(
   });
 
   let sourcemap_path_transform = output_options.sourcemap_path_transform.map(|ts_fn| {
-    rolldown::SourceMapPathTransform::new(Box::new(move |source, sourcemap_path| {
+    rolldown::SourceMapPathTransform::new(Arc::new(move |source, sourcemap_path| {
       let ts_fn = Arc::clone(&ts_fn);
       let source = source.to_string();
       let sourcemap_path = sourcemap_path.to_string();
@@ -135,9 +151,11 @@ pub fn normalize_binding_options(
       .map_err(|err| napi::Error::new(napi::Status::GenericFailure, err))?,
     shim_missing_exports: input_options.shim_missing_exports,
     name: output_options.name,
+    asset_filenames: output_options.asset_file_names,
     entry_filenames: normalize_chunk_file_names_option(output_options.entry_file_names)?,
     chunk_filenames: normalize_chunk_file_names_option(output_options.chunk_file_names)?,
-    asset_filenames: output_options.asset_file_names,
+    css_entry_filenames: normalize_chunk_file_names_option(output_options.css_entry_file_names)?,
+    css_chunk_filenames: normalize_chunk_file_names_option(output_options.css_chunk_file_names)?,
     dir: output_options.dir,
     file: output_options.file,
     sourcemap: output_options.sourcemap.map(Into::into),
@@ -167,15 +185,21 @@ pub fn normalize_binding_options(
       "umd" => OutputFormat::Umd,
       _ => panic!("Invalid format: {format_str}"),
     }),
-    globals: output_options.globals,
+    hash_characters: output_options.hash_characters.map(|format_str| match format_str.as_str() {
+      "base64" => HashCharacters::Base64,
+      "base36" => HashCharacters::Base36,
+      "hex" => HashCharacters::Hex,
+      _ => panic!("Invalid hash characters: {format_str}"),
+    }),
+    globals: normalize_globals_option(output_options.globals),
     module_types,
     experimental: input_options.experimental.map(|inner| ExperimentalOptions {
       strict_execution_order: inner.strict_execution_order,
       disable_live_bindings: inner.disable_live_bindings,
+      vite_mode: inner.vite_mode,
+      resolve_new_url_to_asset: inner.resolve_new_url_to_asset,
     }),
     minify: output_options.minify,
-    css_entry_filenames: None,
-    css_chunk_filenames: None,
     extend: output_options.extend,
     define: input_options.define.map(FxIndexMap::from_iter),
     inject: input_options
@@ -203,6 +227,20 @@ pub fn normalize_binding_options(
     profiler_names: input_options.profiler_names,
     jsx: input_options.jsx.map(Into::into),
     watch: input_options.watch.map(TryInto::try_into).transpose()?,
+    comments: output_options
+      .comments
+      .map(|inner| match inner.as_str() {
+        "none" => Ok(rolldown::Comments::None),
+        "preserve-legal" => Ok(rolldown::Comments::Preserve),
+        _ => Err(napi::Error::new(
+          napi::Status::GenericFailure,
+          format!("Invalid valid for `comments` option: {inner}"),
+        )),
+      })
+      .transpose()?,
+    drop_labels: input_options.drop_labels,
+    // the target is not ready to expose yet
+    target: None,
   };
 
   #[cfg(not(target_family = "wasm"))]

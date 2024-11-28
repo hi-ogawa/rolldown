@@ -1,18 +1,20 @@
 use std::collections::hash_map::Entry;
 
-use anyhow::Result;
 use arcstr::ArcStr;
-use oxc::{ast::VisitMut, index::IndexVec};
+use oxc::ast::VisitMut;
+use oxc_index::IndexVec;
 use rolldown_ecmascript_utils::AstSnippet;
+use rolldown_error::BuildResult;
 use rolldown_std_utils::OptionExt;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use rolldown_common::{
-  ChunkIdx, ChunkKind, FileNameRenderOptions, ImportMetaRolldownAssetReplacer, Module,
-  PreliminaryFilename,
+  ChunkIdx, ChunkKind, CssAssetNameReplacer, FileNameRenderOptions,
+  ImportMetaRolldownAssetReplacer, Module, PreliminaryFilename,
 };
 use rolldown_plugin::SharedPluginDriver;
 use rolldown_utils::{
+  concat_string,
   extract_hash_pattern::extract_hash_pattern,
   hash_placeholder::HashPlaceholderGenerator,
   path_buf_ext::PathBufExt,
@@ -62,7 +64,7 @@ impl<'a> GenerateStage<'a> {
   }
 
   #[tracing::instrument(level = "debug", skip_all)]
-  pub async fn generate(&mut self) -> Result<BundleOutput> {
+  pub async fn generate(&mut self) -> BuildResult<BundleOutput> {
     let mut chunk_graph = self.generate_chunks().await?;
     if chunk_graph.chunk_table.len() > 1 {
       validate_options_for_multi_chunk_output(self.options)?;
@@ -78,7 +80,7 @@ impl<'a> GenerateStage<'a> {
       deconflict_chunk_symbols(
         chunk,
         self.link_output,
-        &self.options.format,
+        self.options.format,
         &index_chunk_id_to_name,
       );
     });
@@ -202,7 +204,7 @@ impl<'a> GenerateStage<'a> {
               let next_count = *occ.get();
               occ.insert(next_count + 1);
               candidate =
-                ArcStr::from(format!("{}{}", name, itoa::Buffer::new().format(next_count)));
+                ArcStr::from(concat_string!(name, itoa::Buffer::new().format(next_count)).as_str());
             }
             Entry::Vacant(vac) => {
               // This is the first time we see this name
@@ -298,13 +300,33 @@ impl<'a> GenerateStage<'a> {
 
   pub fn patch_asset_modules(&mut self, chunk_graph: &ChunkGraph) {
     chunk_graph.chunk_table.iter().for_each(|chunk| {
+      let mut module_idx_to_filenames = FxHashMap::default();
+      // replace asset name in ecma view
       chunk.asset_preliminary_filenames.iter().for_each(|(module_idx, preliminary)| {
         let Module::Normal(module) = &mut self.link_output.module_table.modules[*module_idx] else {
           return;
         };
+        let asset_filename: ArcStr = preliminary.as_str().into();
         module.ecma_view.mutations.push(Box::new(ImportMetaRolldownAssetReplacer {
-          asset_filename: preliminary.to_string(),
+          asset_filename: asset_filename.clone(),
         }));
+        module_idx_to_filenames.insert(module_idx, asset_filename);
+      });
+      // replace asset name in css view
+      chunk.modules.iter().for_each(|module_idx| {
+        let module = &mut self.link_output.module_table.modules[*module_idx];
+        if let Some(css_view) =
+          module.as_normal_mut().and_then(|normal_module| normal_module.css_view.as_mut())
+        {
+          for (idx, record) in css_view.import_records.iter_enumerated() {
+            if let Some(asset_filename) = module_idx_to_filenames.get(&record.resolved_module) {
+              let span = css_view.record_idx_to_span[idx];
+              css_view
+                .mutations
+                .push(Box::new(CssAssetNameReplacer { span, asset_name: asset_filename.clone() }));
+            }
+          }
+        }
       });
     });
   }

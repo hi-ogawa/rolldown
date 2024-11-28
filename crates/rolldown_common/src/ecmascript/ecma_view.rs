@@ -1,6 +1,7 @@
 use arcstr::ArcStr;
 use bitflags::bitflags;
-use oxc::{index::IndexVec, semantic::SymbolId, span::Span};
+use oxc::{semantic::SymbolId, span::Span};
+use oxc_index::IndexVec;
 use rolldown_rstr::Rstr;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -106,6 +107,8 @@ pub struct EcmaView {
   pub hashbang_range: Option<Span>,
   pub meta: EcmaViewMeta,
   pub mutations: Vec<BoxedSourceMutation>,
+  /// `Span` of `new URL('path', import.meta.url)` -> `ImportRecordIdx`
+  pub new_url_references: FxHashMap<Span, ImportRecordIdx>,
 }
 
 bitflags! {
@@ -119,17 +122,12 @@ bitflags! {
 
 #[derive(Debug, Default)]
 pub struct ImportMetaRolldownAssetReplacer {
-  pub asset_filename: String,
+  pub asset_filename: ArcStr,
 }
 
 impl SourceMutation for ImportMetaRolldownAssetReplacer {
   fn apply(&self, magic_string: &mut string_wizard::MagicString<'_>) {
-    // TODO: should use replace method instead of this
-    let code = magic_string.to_string();
-
-    *magic_string = string_wizard::MagicString::new(
-      code
-        .replace("import.meta.__ROLLDOWN_ASSET_FILENAME", &format!("\"{}\"", self.asset_filename)),
-    );
+    magic_string
+      .replace_all("import.meta.__ROLLDOWN_ASSET_FILENAME", format!("\"{}\"", self.asset_filename));
   }
 }

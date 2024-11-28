@@ -1,12 +1,16 @@
-import { spawn } from 'node:child_process'
-import { BindingWatcher, BindingWatcherEvent } from './binding'
+import { BindingWatcher } from './binding'
 import { MaybePromise } from './types/utils'
+import { normalizeErrors } from './utils/error'
 
 export class Watcher {
   closed: boolean
   controller: AbortController
   inner: BindingWatcher
   stopWorkers?: () => Promise<void>
+  listeners: Map<
+    WatcherEvent,
+    Array<(...parameters: any[]) => MaybePromise<void>>
+  > = new Map()
   constructor(inner: BindingWatcher, stopWorkers?: () => Promise<void>) {
     this.closed = false
     this.controller = new AbortController()
@@ -37,53 +41,76 @@ export class Watcher {
     event: WatcherEvent,
     listener: (...parameters: any[]) => MaybePromise<void>,
   ): this {
-    switch (event) {
-      case 'close':
-        this.inner.on(BindingWatcherEvent.Close, async () => {
-          await listener()
-        })
-        break
-      case 'event':
-        this.inner.on(BindingWatcherEvent.Event, async (data) => {
-          if (data!.code === 'BUNDLE_END') {
-            await listener({
-              code: 'BUNDLE_END',
-              duration: Number(data!.duration),
-              output: [data!.output], // rolldown doesn't support arraying configure output
-            })
-          } else {
-            await listener(data)
-          }
-        })
-        break
-
-      case 'restart':
-        this.inner.on(BindingWatcherEvent.ReStart, async () => {
-          await listener()
-        })
-        break
-
-      case 'change':
-        this.inner.on(BindingWatcherEvent.Change, async (data) => {
-          await listener(data!.id, { event: data!.kind as ChangeEvent })
-        })
-        break
-      default:
-        throw new Error(`Unknown event: ${event}`)
+    const listeners = this.listeners.get(event)
+    if (listeners) {
+      listeners.push(listener)
+    } else {
+      this.listeners.set(event, [listener])
     }
     return this
   }
 
   // The rust side already create a thread for watcher, but it isn't at main thread.
-  // So here we need to spawn a process to avoid main process exit util the user call `watcher.close()`.
+  // So here we need to avoid main process exit util the user call `watcher.close()`.
   watch() {
-    const watcherWorkerPath = require.resolve('rolldown/watcher-worker')
-    const child = spawn(process.argv[0], [watcherWorkerPath], {
-      signal: this.controller.signal,
+    const timer = setInterval(() => {}, 1e9 /* Low power usage */)
+    this.controller.signal.addEventListener('abort', () => {
+      clearInterval(timer)
     })
-    child.on('error', () => {
-      /* ignore AbortError */
-    })
+    // run first build after listener is attached
+    process.nextTick(() =>
+      this.inner.start(async (event) => {
+        const listeners = this.listeners.get(event.eventKind() as WatcherEvent)
+        if (listeners) {
+          switch (event.eventKind()) {
+            case 'close':
+            case 'restart':
+              for (const listener of listeners) {
+                await listener()
+              }
+              break
+
+            case 'event':
+              for (const listener of listeners) {
+                const code = event.bundleEventKind()
+                switch (code) {
+                  case 'BUNDLE_END':
+                    const { duration, output } = event.bundleEndData()
+                    await listener({
+                      code: 'BUNDLE_END',
+                      duration,
+                      output: [output], // rolldown doesn't support arraying configure output
+                    })
+                    break
+
+                  case 'ERROR':
+                    const errors = event.errors()
+                    await listener({
+                      code: 'ERROR',
+                      error: normalizeErrors(errors),
+                    })
+                    break
+
+                  default:
+                    await listener({ code })
+                    break
+                }
+              }
+              break
+
+            case 'change':
+              for (const listener of listeners) {
+                const { path, kind } = event.watchChangeData()
+                await listener(path, { event: kind as ChangeEvent })
+              }
+              break
+
+            default:
+              throw new Error(`Unknown event: ${event}`)
+          }
+        }
+      }),
+    )
   }
 }
 
@@ -104,4 +131,7 @@ export type RollupWatcherEvent =
       // result: RollupBuild
     }
   | { code: 'END' }
-  | { code: 'ERROR' /** error: RollupError; result: RollupBuild | null **/ }
+  | {
+      code: 'ERROR'
+      error: Error /* the error is not compilable with rollup * /  /**  result: RollupBuild | null **/
+    }

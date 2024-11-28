@@ -17,7 +17,7 @@ x = [data_default, data_default, data_default2];
 ```js
 
 //#region data.json
-const some = "data";
+var some = "data";
 var data_default = { some };
 
 //#endregion

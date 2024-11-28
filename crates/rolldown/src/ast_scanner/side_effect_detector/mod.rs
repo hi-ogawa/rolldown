@@ -12,7 +12,10 @@ use rolldown_utils::global_reference::{
   is_global_ident_ref, is_side_effect_free_member_expr_of_len_three,
   is_side_effect_free_member_expr_of_len_two,
 };
-use utils::{can_change_strict_to_loose, is_side_effect_free_unbound_identifier_ref};
+use utils::{
+  can_change_strict_to_loose, is_side_effect_free_unbound_identifier_ref,
+  maybe_side_effect_free_global_constructor,
+};
 
 use self::utils::{known_primitive_type, PrimitiveType};
 
@@ -24,6 +27,7 @@ pub struct SideEffectDetector<'a> {
   pub scope: &'a AstScopes,
   pub source: &'a str,
   pub comments: &'a oxc::allocator::Vec<'a, Comment>,
+  pub ignore_annotations: bool,
 }
 
 impl<'a> SideEffectDetector<'a> {
@@ -31,8 +35,9 @@ impl<'a> SideEffectDetector<'a> {
     scope: &'a AstScopes,
     source: &'a str,
     comments: &'a oxc::allocator::Vec<'a, Comment>,
+    ignore_annotations: bool,
   ) -> Self {
-    Self { scope, source, comments }
+    Self { scope, source, comments, ignore_annotations }
   }
 
   fn is_unresolved_reference(&self, ident_ref: &IdentifierReference) -> bool {
@@ -139,7 +144,7 @@ impl<'a> SideEffectDetector<'a> {
   }
 
   fn detect_side_effect_of_call_expr(&mut self, expr: &CallExpression) -> bool {
-    let is_pure = self.is_pure_function_or_constructor_call(expr.span);
+    let is_pure = !self.ignore_annotations && self.is_pure_function_or_constructor_call(expr.span);
     if is_pure {
       expr.arguments.iter().any(|arg| match arg {
         Argument::SpreadElement(_) => true,
@@ -168,13 +173,6 @@ impl<'a> SideEffectDetector<'a> {
           ast::ObjectPropertyKind::ObjectProperty(prop) => {
             let key_side_effect = self.detect_side_effect_of_property_key(&prop.key, prop.computed);
             if key_side_effect {
-              return true;
-            }
-
-            let prop_init_side_effect =
-              prop.init.as_ref().map_or(false, |expr| self.detect_side_effect_of_expr(expr));
-
-            if prop_init_side_effect {
               return true;
             }
             self.detect_side_effect_of_expr(&prop.value)
@@ -311,6 +309,9 @@ impl<'a> SideEffectDetector<'a> {
 
       Expression::ChainExpression(expr) => match &expr.expression {
         ChainElement::CallExpression(call_expr) => self.detect_side_effect_of_call_expr(call_expr),
+        ChainElement::TSNonNullExpression(expr) => {
+          self.detect_side_effect_of_expr(&expr.expression)
+        }
         match_member_expression!(ChainElement) => {
           self.detect_side_effect_of_member_expr(expr.expression.to_member_expression())
         }
@@ -327,15 +328,10 @@ impl<'a> SideEffectDetector<'a> {
         unreachable!("jsx should be transpiled")
       }
 
-      Expression::ArrayExpression(expr) => expr.elements.iter().any(|elem| match elem {
-        ArrayExpressionElement::SpreadElement(_) => true,
-        ArrayExpressionElement::Elision(_) => false,
-        match_expression!(ArrayExpressionElement) => {
-          self.detect_side_effect_of_expr(elem.to_expression())
-        }
-      }),
+      Expression::ArrayExpression(expr) => self.detect_side_effect_of_array_expr(expr),
       Expression::NewExpression(expr) => {
-        let is_pure = self.is_pure_function_or_constructor_call(expr.span);
+        let is_pure = maybe_side_effect_free_global_constructor(self.scope, expr)
+          || self.is_pure_function_or_constructor_call(expr.span);
         if is_pure {
           expr.arguments.iter().any(|arg| match arg {
             Argument::SpreadElement(_) => true,
@@ -347,6 +343,23 @@ impl<'a> SideEffectDetector<'a> {
       }
       Expression::CallExpression(expr) => self.detect_side_effect_of_call_expr(expr),
     }
+  }
+
+  fn detect_side_effect_of_array_expr(&mut self, expr: &ast::ArrayExpression<'_>) -> bool {
+    expr.elements.iter().any(|elem| match elem {
+      ArrayExpressionElement::SpreadElement(ele) => {
+        // https://github.com/evanw/esbuild/blob/d34e79e2a998c21bb71d57b92b0017ca11756912/internal/js_ast/js_ast_helpers.go#L2466-L2477
+        // Spread of an inline array such as "[...[x]]" is side-effect free
+        match &ele.argument {
+          Expression::ArrayExpression(arr) => self.detect_side_effect_of_array_expr(arr),
+          _ => true,
+        }
+      }
+      ArrayExpressionElement::Elision(_) => false,
+      match_expression!(ArrayExpressionElement) => {
+        self.detect_side_effect_of_expr(elem.to_expression())
+      }
+    })
   }
 
   fn detect_side_effect_of_var_decl(&mut self, var_decl: &ast::VariableDeclaration) -> bool {
@@ -364,13 +377,31 @@ impl<'a> SideEffectDetector<'a> {
             }
           }
         }
-        let is_destructuring = matches!(
-          declarator.id.kind,
-          BindingPatternKind::ArrayPattern(_) | BindingPatternKind::ObjectPattern(_)
-        );
-
-        is_destructuring
-          || declarator.init.as_ref().is_some_and(|init| self.detect_side_effect_of_expr(init))
+        match &declarator.id.kind {
+          // Destructuring the initializer has no side effects if the
+          // initializer is an array, since we assume the iterator is then
+          // the built-in side-effect free array iterator.
+          BindingPatternKind::ObjectPattern(_) => true,
+          BindingPatternKind::ArrayPattern(pat) => {
+            for p in &pat.elements {
+              match &p {
+                Some(binding_pat)
+                  if matches!(binding_pat.kind, BindingPatternKind::BindingIdentifier(_)) =>
+                {
+                  continue;
+                }
+                None => continue,
+                _ => {
+                  return true;
+                }
+              }
+            }
+            declarator.init.as_ref().is_some_and(|init| self.detect_side_effect_of_expr(init))
+          }
+          BindingPatternKind::BindingIdentifier(_) | BindingPatternKind::AssignmentPattern(_) => {
+            declarator.init.as_ref().is_some_and(|init| self.detect_side_effect_of_expr(init))
+          }
+        }
       }),
     }
   }
@@ -534,7 +565,7 @@ mod test {
     };
 
     let has_side_effect = ast.program().body.iter().any(|stmt| {
-      SideEffectDetector::new(&ast_scope, ast.source(), ast.comments())
+      SideEffectDetector::new(&ast_scope, ast.source(), ast.comments(), false)
         .detect_side_effect_of_stmt(stmt)
     });
 
@@ -809,6 +840,17 @@ mod test {
     assert!(get_statements_side_effect("import('foo')"));
     assert!(get_statements_side_effect("let a; a``"));
     assert!(get_statements_side_effect("let a; a++"));
+  }
+
+  #[test]
+  fn test_new_expr() {
+    assert!(!get_statements_side_effect("new Map()"));
+    assert!(!get_statements_side_effect("new Set()"));
+    assert!(!get_statements_side_effect("new Map([[1, 2], [3, 4]]);"));
+    assert!(get_statements_side_effect("new Regex()"));
+    assert!(!get_statements_side_effect(
+      "new Date(); new Date(''); new Date(null); new Date(false); new Date(undefined)"
+    ));
   }
 
   #[test]

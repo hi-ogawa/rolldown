@@ -5,10 +5,10 @@ use super::GenerateStage;
 use crate::chunk_graph::ChunkGraph;
 use indexmap::IndexSet;
 use itertools::{multizip, Itertools};
-use oxc::index::{index_vec, IndexVec};
+use oxc_index::{index_vec, IndexVec};
 use rolldown_common::{
-  ChunkIdx, ChunkKind, CrossChunkImportItem, ExportsKind, ImportKind, Module, ModuleIdx,
-  NamedImport, OutputFormat, SymbolRef, WrapKind,
+  ChunkIdx, ChunkKind, CrossChunkImportItem, ExportsKind, ImportKind, ImportRecordMeta, Module,
+  ModuleIdx, NamedImport, OutputFormat, SymbolRef, WrapKind,
 };
 use rolldown_rstr::{Rstr, ToRstr};
 use rolldown_utils::rayon::IntoParallelIterator;
@@ -182,7 +182,10 @@ impl<'a> GenerateStage<'a> {
                 }
               }
             })
-            .filter(|rec| matches!(rec.kind, ImportKind::Import))
+            .filter(|rec| {
+              matches!(rec.kind, ImportKind::Import)
+                && !rec.meta.contains(ImportRecordMeta::IS_EXPORT_STAR)
+            })
             .filter_map(|rec| {
               self.link_output.module_table.modules[rec.resolved_module].as_external()
             })
@@ -237,7 +240,7 @@ impl<'a> GenerateStage<'a> {
           });
         });
 
-        if let ChunkKind::EntryPoint { module: entry_id, .. } = &chunk.kind {
+        if let Some(entry_id) = &chunk.entry_module_idx() {
           let entry = &self.link_output.module_table.modules[*entry_id].as_normal().unwrap();
           let entry_meta = &self.link_output.metas[entry.idx];
 
@@ -303,6 +306,10 @@ impl<'a> GenerateStage<'a> {
       let chunk_meta_imports = &index_chunk_depended_symbols[chunk_id];
       for import_ref in chunk_meta_imports.iter().copied() {
         if !self.link_output.used_symbol_refs.contains(&import_ref) {
+          continue;
+        }
+        // If the symbol from external, we don't need to include it.
+        if self.link_output.module_table.modules[import_ref.owner].is_external() {
           continue;
         }
         let import_symbol = self.link_output.symbol_db.get(import_ref);

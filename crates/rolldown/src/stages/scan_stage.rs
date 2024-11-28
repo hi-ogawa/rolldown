@@ -3,6 +3,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use arcstr::ArcStr;
 use futures::future::join_all;
+use rolldown_common::{
+  dynamic_import_usage::DynamicImportExportsUsage, EntryPoint, ImportKind, ModuleIdx, ModuleTable,
+  ResolvedId, RuntimeModuleBrief, SymbolRefDb,
+};
 use rolldown_common::{EntryPoint, ImportKind, ModuleIdx, ModuleTable, ResolvedId, SymbolRefDb};
 use rolldown_error::{BuildDiagnostic, BuildResult};
 use rolldown_fs::OsFileSystem;
@@ -12,7 +16,6 @@ use rustc_hash::FxHashMap;
 
 use crate::{
   module_loader::{module_loader::ModuleLoaderOutput, ModuleLoader},
-  runtime::RuntimeModuleBrief,
   type_alias::IndexEcmaAst,
   utils::resolve_id::resolve_id,
   SharedOptions, SharedResolver,
@@ -35,6 +38,7 @@ pub struct ScanStageOutput {
   pub runtime: RuntimeModuleBrief,
   pub warnings: Vec<BuildDiagnostic>,
   pub errors: Vec<BuildDiagnostic>,
+  pub dynamic_import_exports_usage_map: FxHashMap<ModuleIdx, DynamicImportExportsUsage>,
 }
 
 impl ScanStage {
@@ -48,9 +52,9 @@ impl ScanStage {
   }
 
   #[tracing::instrument(level = "debug", skip_all)]
-  pub async fn scan(&mut self) -> anyhow::Result<BuildResult<ScanStageOutput>> {
+  pub async fn scan(&mut self) -> BuildResult<ScanStageOutput> {
     if self.options.input.is_empty() {
-      return Err(anyhow::format_err!("You must supply options.input to rolldown"));
+      return Err(anyhow::format_err!("You must supply options.input to rolldown").into());
     }
 
     let module_loader = ModuleLoader::new(
@@ -63,7 +67,7 @@ impl ScanStage {
     let user_entries = match self.resolve_user_defined_entries().await? {
       Ok(entries) => entries,
       Err(errors) => {
-        return Ok(Err(errors));
+        return Err(errors);
       }
     };
 
@@ -75,14 +79,15 @@ impl ScanStage {
       warnings,
       index_ecma_ast,
       module_id_to_modules,
+      dynamic_import_exports_usage_map,
     } = match module_loader.fetch_all_modules(user_entries).await? {
       Ok(output) => output,
       Err(errors) => {
-        return Ok(Err(errors));
+        return Err(errors);
       }
     };
 
-    Ok(Ok(ScanStageOutput {
+    Ok(ScanStageOutput {
       module_table,
       module_id_to_modules,
       entry_points,
@@ -91,7 +96,8 @@ impl ScanStage {
       warnings,
       index_ecma_ast,
       errors: vec![],
-    }))
+      dynamic_import_exports_usage_map,
+    })
   }
 
   /// Resolve `InputOptions.input`

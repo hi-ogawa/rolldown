@@ -5,9 +5,9 @@ import {
   SourceMap,
 } from './types/rolldown-output'
 import type {
-  ExternalOption,
-  InputOption,
   InputOptions,
+  InputOption,
+  ExternalOption,
   JsxOptions,
 } from './options/input-options'
 import type { ModuleFormat, OutputOptions } from './options/output-options'
@@ -49,11 +49,12 @@ import { RenderedChunk, PreRenderedChunk } from './binding'
 import { PartialNull } from './types/utils'
 import { NormalizedInputOptions } from './options/normalized-input-options'
 import { ModuleInfo } from './types/module-info'
-import { MinimalPluginContext } from './log/logger'
+import { MinimalPluginContext } from './plugin/minimal-plugin-context'
 import { ExistingRawSourceMap, SourceMapInput } from './types/sourcemap'
 import { OutputBundle } from './types/output-bundle'
 import { version } from '../package.json'
-import { WatchOptions } from './options/watch-option'
+import { WatchOptions } from './options/watch-options'
+import { Watcher } from './watcher'
 
 export { defineConfig, rolldown, watch }
 export const VERSION: string = version
@@ -105,6 +106,7 @@ export type {
   OutputBundle,
   JsxOptions,
   WatchOptions,
+  Watcher,
 }
 
 // Exports for compatibility

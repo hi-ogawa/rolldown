@@ -5,19 +5,25 @@ use super::BuildDiagnostic;
 use arcstr::ArcStr;
 use oxc::diagnostics::OxcDiagnostic;
 use oxc::{diagnostics::LabeledSpan, span::Span};
-use rolldown_resolver::ResolveError;
+use oxc_resolver::ResolveError;
 
+use crate::events::assign_to_import::AssignToImport;
 use crate::events::export_undefined_variable::ExportUndefinedVariable;
 use crate::events::illegal_identifier_as_name::IllegalIdentifierAsName;
 use crate::events::import_is_undefined::ImportIsUndefined;
-use crate::events::invalid_option::{InvalidOption, InvalidOptionTypes};
+use crate::events::invalid_define_config::InvalidDefineConfig;
+use crate::events::invalid_option::{InvalidOption, InvalidOptionType};
+use crate::events::json_parse::JsonParse;
 use crate::events::missing_global_name::MissingGlobalName;
 use crate::events::missing_name_option_for_iife_export::MissingNameOptionForIifeExport;
 use crate::events::missing_name_option_for_umd_export::MissingNameOptionForUmdExport;
 use crate::events::resolve_error::DiagnosableResolveError;
 use crate::events::unhandleable_error::UnhandleableError;
 use crate::events::unloadable_dependency::{UnloadableDependency, UnloadableDependencyContext};
+use crate::events::unsupported_feature::UnsupportedFeature;
 use crate::events::DiagnosableArcstr;
+#[cfg(feature = "napi")]
+use crate::events::NapiError;
 use crate::events::{
   ambiguous_external_namespace::{AmbiguousExternalNamespace, AmbiguousExternalNamespaceModule},
   circular_dependency::CircularDependency,
@@ -33,8 +39,8 @@ use crate::events::{
   unresolved_entry::UnresolvedEntry,
   unresolved_import::UnresolvedImport,
   unresolved_import_treated_as_external::UnresolvedImportTreatedAsExternal,
-  NapiError,
 };
+use crate::line_column_to_byte_offset;
 
 impl BuildDiagnostic {
   // --- Rollup related
@@ -83,9 +89,11 @@ impl BuildDiagnostic {
   pub fn unloadable_dependency(
     resolved: ArcStr,
     context: Option<UnloadableDependencyContext>,
-    reason: ArcStr,
+    err: anyhow::Error,
   ) -> Self {
-    Self::new_inner(UnloadableDependency { resolved, context, reason })
+    downcast_napi_error_diagnostics(err).unwrap_or_else(|err| {
+      Self::new_inner(UnloadableDependency { resolved, context, reason: err.to_string().into() })
+    })
   }
 
   pub fn sourcemap_error(error: oxc::sourcemap::Error) -> Self {
@@ -176,6 +184,15 @@ impl BuildDiagnostic {
     Self::new_inner(ImportIsUndefined { filename, source, span, name, stable_importer })
   }
 
+  pub fn unsupported_feature(
+    filename: ArcStr,
+    source: ArcStr,
+    span: Span,
+    error_message: String,
+  ) -> Self {
+    Self::new_inner(UnsupportedFeature { filename, source, span, error_message })
+  }
+
   // --- Rolldown related
 
   pub fn oxc_parse_error(
@@ -225,12 +242,15 @@ impl BuildDiagnostic {
     Self::new_inner(ForbidConstAssign { filename, source, name, reference_span, re_assign_span })
   }
 
-  pub fn invalid_option(situation: InvalidOptionTypes, option: String) -> Self {
-    Self::new_inner(InvalidOption { invalid_option_types: situation, option })
+  pub fn invalid_option(invalid_option_type: InvalidOptionType) -> Self {
+    Self::new_inner(InvalidOption { invalid_option_type })
   }
 
-  pub fn napi_error(status: String, reason: String) -> Self {
-    Self::new_inner(NapiError { status, reason })
+  #[cfg(feature = "napi")]
+  pub fn napi_error(err: napi::Error) -> Self {
+    let mut diagnostic = Self::new_inner(NapiError {});
+    diagnostic.napi_error = Some(err);
+    diagnostic
   }
 
   pub fn eval(filename: String, source: ArcStr, span: Span) -> Self {
@@ -246,7 +266,41 @@ impl BuildDiagnostic {
     Self::new_inner(ExportUndefinedVariable { filename, source, span, name })
   }
 
+  pub fn assign_to_import(filename: ArcStr, source: ArcStr, span: Span, name: ArcStr) -> Self {
+    Self::new_inner(AssignToImport { filename, source, span, name })
+  }
+
+  #[allow(clippy::cast_possible_truncation)]
+  pub fn json_parse(
+    filename: ArcStr,
+    source: ArcStr,
+    line: usize,
+    column: usize,
+    message: ArcStr,
+  ) -> Self {
+    // `serde_json` Error is one-based https://docs.rs/serde_json/1.0.132/serde_json/struct.Error.html#method.column
+    let start_offset = line_column_to_byte_offset(source.as_str(), line - 1, column - 1);
+    let span = Span::new(start_offset as u32, start_offset as u32);
+    Self::new_inner(JsonParse { filename, source, span, message })
+  }
+
+  pub fn invalid_define_config(message: String) -> Self {
+    Self::new_inner(InvalidDefineConfig { message })
+  }
+
   pub fn unhandleable_error(err: anyhow::Error) -> Self {
-    Self::new_inner(UnhandleableError(err))
+    downcast_napi_error_diagnostics(err)
+      .unwrap_or_else(|err| Self::new_inner(UnhandleableError(err)))
+  }
+}
+
+fn downcast_napi_error_diagnostics(err: anyhow::Error) -> Result<BuildDiagnostic, anyhow::Error> {
+  #[cfg(feature = "napi")]
+  {
+    err.downcast::<napi::Error>().map(BuildDiagnostic::napi_error)
+  }
+  #[cfg(not(feature = "napi"))]
+  {
+    Err(err)
   }
 }

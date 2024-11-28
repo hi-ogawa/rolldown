@@ -1,18 +1,19 @@
 import { BindingPluginContext } from '../binding'
-import { ModuleInfo, ModuleOptions } from '..'
+import { ModuleOptions } from '..'
 import { transformModuleInfo } from '../utils/transform-module-info'
 import { PluginContextResolveOptions } from './plugin-context'
 
 export class PluginContextData {
-  modules = new Map<string, ModuleInfo>()
-  moduleIds: Array<string> | null = null
   moduleOptionMap = new Map<string, ModuleOptions>()
   resolveOptionsMap = new Map<number, PluginContextResolveOptions>()
+  loadModulePromiseMap: Map<string, Promise<void>> = new Map()
 
   updateModuleOption(id: string, option: ModuleOptions) {
     const existing = this.moduleOptionMap.get(id)
     if (existing) {
-      Object.assign(existing, option)
+      if (option.moduleSideEffects != null) {
+        existing.moduleSideEffects = option.moduleSideEffects
+      }
       if (option.meta != null) {
         Object.assign(existing.meta, option.meta)
       }
@@ -22,35 +23,30 @@ export class PluginContextData {
   }
 
   getModuleOption(id: string) {
-    return this.moduleOptionMap.get(id)
+    const option = this.moduleOptionMap.get(id)
+    if (!option) {
+      const raw: ModuleOptions = {
+        moduleSideEffects: null,
+        meta: {},
+      }
+      this.moduleOptionMap.set(id, raw)
+      return raw
+    }
+    return option
   }
 
   getModuleInfo(id: string, context: BindingPluginContext) {
-    if (this.modules.has(id)) {
-      return this.modules.get(id) ?? null
-    }
     const bindingInfo = context.getModuleInfo(id)
     if (bindingInfo) {
-      const info = transformModuleInfo(
-        bindingInfo,
-        this.moduleOptionMap.get(id)!,
-      )
-      this.modules.set(id, info)
+      const info = transformModuleInfo(bindingInfo, this.getModuleOption(id))
       return info
     }
     return null
   }
 
   getModuleIds(context: BindingPluginContext) {
-    if (this.moduleIds) {
-      return this.moduleIds.values()
-    }
     const moduleIds = context.getModuleIds()
-    if (moduleIds) {
-      this.moduleIds = moduleIds
-      return moduleIds.values()
-    }
-    return [].values()
+    return moduleIds.values()
   }
 
   saveResolveOptions(options: PluginContextResolveOptions): number {

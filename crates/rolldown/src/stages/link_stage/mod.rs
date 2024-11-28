@@ -2,13 +2,15 @@ use std::{ptr::addr_of, sync::Mutex};
 
 use append_only_vec::AppendOnlyVec;
 use arcstr::ArcStr;
-use oxc::index::IndexVec;
+use oxc_index::IndexVec;
 use rolldown_common::{
-  EntryPoint, ExportsKind, ImportKind, ImportRecordIdx, ImportRecordMeta, Module, ModuleIdx,
-  ModuleTable, OutputFormat, ResolvedImportRecord, StmtInfo, SymbolRef, SymbolRefDb, WrapKind,
+  dynamic_import_usage::DynamicImportExportsUsage, EntryPoint, ExportsKind, ImportKind,
+  ImportRecordIdx, ImportRecordMeta, Module, ModuleIdx, ModuleTable, OutputFormat,
+  ResolvedImportRecord, RuntimeModuleBrief, StmtInfo, SymbolRef, SymbolRefDb, WrapKind,
 };
 use rolldown_error::BuildDiagnostic;
 use rolldown_utils::{
+  concat_string,
   ecmascript::legitimize_identifier_name,
   index_vec_ext::IndexVecExt,
   rayon::{IntoParallelRefIterator, ParallelIterator},
@@ -16,7 +18,6 @@ use rolldown_utils::{
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-  runtime::RuntimeModuleBrief,
   type_alias::IndexEcmaAst,
   types::linking_metadata::{LinkingMetadata, LinkingMetadataVec},
   SharedOptions,
@@ -45,6 +46,7 @@ pub struct LinkStageOutput {
   pub warnings: Vec<BuildDiagnostic>,
   pub errors: Vec<BuildDiagnostic>,
   pub used_symbol_refs: FxHashSet<SymbolRef>,
+  pub dynamic_import_exports_usage_map: FxHashMap<ModuleIdx, DynamicImportExportsUsage>,
 }
 
 #[derive(Debug)]
@@ -61,6 +63,7 @@ pub struct LinkStage<'a> {
   pub ast_table: IndexEcmaAst,
   pub options: &'a SharedOptions,
   pub used_symbol_refs: FxHashSet<SymbolRef>,
+  pub dynamic_import_exports_usage_map: FxHashMap<ModuleIdx, DynamicImportExportsUsage>,
 }
 
 impl<'a> LinkStage<'a> {
@@ -99,6 +102,7 @@ impl<'a> LinkStage<'a> {
       warnings: scan_stage_output.warnings,
       errors: scan_stage_output.errors,
       ast_table: scan_stage_output.index_ecma_ast,
+      dynamic_import_exports_usage_map: scan_stage_output.dynamic_import_exports_usage_map,
       options,
       used_symbol_refs: FxHashSet::default(),
     }
@@ -130,13 +134,12 @@ impl<'a> LinkStage<'a> {
       errors: self.errors,
       ast_table: self.ast_table,
       used_symbol_refs: self.used_symbol_refs,
+      dynamic_import_exports_usage_map: self.dynamic_import_exports_usage_map,
     }
   }
 
   #[tracing::instrument(level = "debug", skip_all)]
   fn determine_module_exports_kind(&mut self) {
-    // Maximize the compatibility with commonjs
-    let compat_mode = true;
     let entry_ids_set = self.entries.iter().map(|e| e.id).collect::<FxHashSet<_>>();
     self.module_table.modules.iter().filter_map(Module::as_normal).for_each(|importer| {
       // TODO(hyf0): should check if importer is a js module
@@ -151,24 +154,15 @@ impl<'a> LinkStage<'a> {
             if matches!(importee.exports_kind, ExportsKind::None)
               && !importee.meta.has_lazy_export()
             {
-              if compat_mode {
-                // See https://github.com/evanw/esbuild/issues/447
-                if rec.meta.intersects(
-                  ImportRecordMeta::CONTAINS_IMPORT_DEFAULT
-                    | ImportRecordMeta::CONTAINS_IMPORT_STAR,
-                ) {
-                  self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
-                  // SAFETY: If `importee` and `importer` are different, so this is safe. If they are the same, then behaviors are still expected.
-                  unsafe {
-                    let importee_mut = addr_of!(*importee).cast_mut();
-                    (*importee_mut).exports_kind = ExportsKind::CommonJs;
-                  }
-                }
-              } else {
-                self.metas[importee.idx].wrap_kind = WrapKind::Esm;
+              // See https://github.com/evanw/esbuild/issues/447
+              if rec.meta.intersects(
+                ImportRecordMeta::CONTAINS_IMPORT_DEFAULT | ImportRecordMeta::CONTAINS_IMPORT_STAR,
+              ) {
+                self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
+                // SAFETY: If `importee` and `importer` are different, so this is safe. If they are the same, then behaviors are still expected.
                 unsafe {
                   let importee_mut = addr_of!(*importee).cast_mut();
-                  (*importee_mut).exports_kind = ExportsKind::Esm;
+                  (*importee_mut).exports_kind = ExportsKind::CommonJs;
                 }
               }
             }
@@ -181,20 +175,12 @@ impl<'a> LinkStage<'a> {
               self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
             }
             ExportsKind::None => {
-              if compat_mode {
-                self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
-                // SAFETY: If `importee` and `importer` are different, so this is safe. If they are the same, then behaviors are still expected.
-                // A module with `ExportsKind::None` that `require` self should be turned into `ExportsKind::CommonJs`.
-                unsafe {
-                  let importee_mut = addr_of!(*importee).cast_mut();
-                  (*importee_mut).exports_kind = ExportsKind::CommonJs;
-                }
-              } else {
-                self.metas[importee.idx].wrap_kind = WrapKind::Esm;
-                unsafe {
-                  let importee_mut = addr_of!(*importee).cast_mut();
-                  (*importee_mut).exports_kind = ExportsKind::Esm;
-                }
+              self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
+              // SAFETY: If `importee` and `importer` are different, so this is safe. If they are the same, then behaviors are still expected.
+              // A module with `ExportsKind::None` that `require` self should be turned into `ExportsKind::CommonJs`.
+              unsafe {
+                let importee_mut = addr_of!(*importee).cast_mut();
+                (*importee_mut).exports_kind = ExportsKind::CommonJs;
               }
             }
           },
@@ -210,20 +196,12 @@ impl<'a> LinkStage<'a> {
                   self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
                 }
                 ExportsKind::None => {
-                  if compat_mode {
-                    self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
-                    // SAFETY: If `importee` and `importer` are different, so this is safe. If they are the same, then behaviors are still expected.
-                    // A module with `ExportsKind::None` that `require` self should be turned into `ExportsKind::CommonJs`.
-                    unsafe {
-                      let importee_mut = addr_of!(*importee).cast_mut();
-                      (*importee_mut).exports_kind = ExportsKind::CommonJs;
-                    }
-                  } else {
-                    self.metas[importee.idx].wrap_kind = WrapKind::Esm;
-                    unsafe {
-                      let importee_mut = addr_of!(*importee).cast_mut();
-                      (*importee_mut).exports_kind = ExportsKind::Esm;
-                    }
+                  self.metas[importee.idx].wrap_kind = WrapKind::Cjs;
+                  // SAFETY: If `importee` and `importer` are different, so this is safe. If they are the same, then behaviors are still expected.
+                  // A module with `ExportsKind::None` that `require` self should be turned into `ExportsKind::CommonJs`.
+                  unsafe {
+                    let importee_mut = addr_of!(*importee).cast_mut();
+                    (*importee_mut).exports_kind = ExportsKind::CommonJs;
                   }
                 }
               }
@@ -232,6 +210,10 @@ impl<'a> LinkStage<'a> {
           ImportKind::AtImport => {
             unreachable!("A Js module would never import a CSS module via `@import`");
           }
+          ImportKind::UrlImport => {
+            unreachable!("A Js module would never import a CSS module via `url()`");
+          }
+          ImportKind::NewUrl => {}
         }
       });
 
@@ -241,32 +223,6 @@ impl<'a> LinkStage<'a> {
       {
         self.metas[importer.idx].wrap_kind = WrapKind::Cjs;
       }
-
-      // TODO: should have a better place to put this
-      if is_entry && matches!(self.options.format, OutputFormat::Cjs) && importer.has_star_export()
-      {
-        importer
-          .import_records
-          .iter()
-          .filter(|rec| rec.meta.contains(ImportRecordMeta::IS_EXPORT_START))
-          .for_each(|rec| {
-            match &self.module_table.modules[rec.resolved_module] {
-              Module::Normal(_) => {}
-              Module::External(ext) => {
-                self.metas[importer.idx]
-                  .require_bindings_for_star_exports
-                  .entry(rec.resolved_module)
-                  .or_insert_with(|| {
-                    // Created `SymbolRef` is only join the de-conflict process to avoid conflict with other symbols.
-                    self.symbols.create_facade_root_symbol_ref(
-                      importer.idx,
-                      legitimize_identifier_name(&ext.name).into_owned().into(),
-                    )
-                  });
-              }
-            }
-          });
-      };
     });
   }
 
@@ -293,7 +249,7 @@ impl<'a> LinkStage<'a> {
             || is_external_dynamic_import(&self.module_table, rec, importer_idx)
           {
             if matches!(rec.kind, ImportKind::Require)
-              || !self.options.format.keep_esm_import_export()
+              || !self.options.format.keep_esm_import_export_syntax()
             {
               if self.options.format.should_call_runtime_require() {
                 stmt_info.referenced_symbols.push(self.runtime.resolve_symbol("__require").into());
@@ -306,17 +262,21 @@ impl<'a> LinkStage<'a> {
               // Make sure symbols from external modules are included and de_conflicted
               match rec.kind {
                 ImportKind::Import => {
-                  let is_reexport_all = rec.meta.contains(ImportRecordMeta::IS_EXPORT_START);
+                  let is_reexport_all = rec.meta.contains(ImportRecordMeta::IS_EXPORT_STAR);
                   if is_reexport_all {
                     // export * from 'external' would be just removed. So it references nothing.
                     rec.namespace_ref.set_name(
                       &mut symbols.lock().unwrap(),
-                      &format!("import_{}", legitimize_identifier_name(&importee.name)),
+                      &concat_string!("import_", legitimize_identifier_name(&importee.name)),
                     );
                   } else {
                     // import ... from 'external' or export ... from 'external'
-                    let cjs_format = matches!(self.options.format, OutputFormat::Cjs);
-                    if cjs_format && !rec.meta.contains(ImportRecordMeta::IS_PLAIN_IMPORT) {
+                    if matches!(
+                      self.options.format,
+                      OutputFormat::Cjs | OutputFormat::Iife | OutputFormat::Umd
+                    ) && !rec.meta.contains(ImportRecordMeta::IS_PLAIN_IMPORT)
+                    {
+                      stmt_info.side_effect = true;
                       stmt_info
                         .referenced_symbols
                         .push(self.runtime.resolve_symbol("__toESM").into());
@@ -330,7 +290,7 @@ impl<'a> LinkStage<'a> {
               let importee_linking_info = &self.metas[importee.idx];
               match rec.kind {
                 ImportKind::Import => {
-                  let is_reexport_all = rec.meta.contains(ImportRecordMeta::IS_EXPORT_START);
+                  let is_reexport_all = rec.meta.contains(ImportRecordMeta::IS_EXPORT_STAR);
                   match importee_linking_info.wrap_kind {
                     WrapKind::None => {
                       // for case:
@@ -387,7 +347,7 @@ impl<'a> LinkStage<'a> {
                         declared_symbol_for_stmt_pairs.push((stmt_idx, rec.namespace_ref));
                         rec.namespace_ref.set_name(
                           &mut symbols.lock().unwrap(),
-                          &format!("import_{}", &importee.repr_name),
+                          &concat_string!("import_", importee.repr_name),
                         );
                       }
                     }
@@ -460,6 +420,10 @@ impl<'a> LinkStage<'a> {
                 ImportKind::AtImport => {
                   unreachable!("A Js module would never import a CSS module via `@import`");
                 }
+                ImportKind::UrlImport => {
+                  unreachable!("A Js module would never import a CSS module via `url()`");
+                }
+                ImportKind::NewUrl => {}
               }
             }
           }
@@ -503,8 +467,8 @@ impl<'a> LinkStage<'a> {
         let linking_info = &mut self.metas[ecma_module.idx];
 
         create_wrapper(ecma_module, linking_info, &mut self.symbols, &self.runtime, self.options);
-        if self.entries.iter().any(|entry| entry.id == ecma_module.idx) {
-          init_entry_point_stmt_info(linking_info);
+        if let Some(entry) = self.entries.iter().find(|entry| entry.id == ecma_module.idx) {
+          init_entry_point_stmt_info(linking_info, entry, &self.dynamic_import_exports_usage_map);
         }
 
         // Create facade StmtInfo that declares variables based on the missing exports, so they can participate in the symbol de-conflict and
@@ -572,7 +536,7 @@ impl<'a> LinkStage<'a> {
       // Symbols from runtime are referenced by bundler not import statements.
       meta.referenced_symbols_by_entry_point_chunk.iter().for_each(|symbol_ref| {
         let canonical_ref = self.symbols.canonical_ref_for(*symbol_ref);
-        meta.dependencies.push(canonical_ref.owner);
+        meta.dependencies.insert(canonical_ref.owner);
       });
 
       let Module::Normal(module) = &self.module_table.modules[module_idx] else {
@@ -586,14 +550,14 @@ impl<'a> LinkStage<'a> {
           match reference_ref {
             rolldown_common::SymbolOrMemberExprRef::Symbol(sym_ref) => {
               let canonical_ref = self.symbols.canonical_ref_for(*sym_ref);
-              meta.dependencies.push(canonical_ref.owner);
+              meta.dependencies.insert(canonical_ref.owner);
             }
             rolldown_common::SymbolOrMemberExprRef::MemberExpr(member_expr) => {
               if let Some(sym_ref) =
                 member_expr.resolved_symbol_ref(&meta.resolved_member_expr_refs)
               {
                 let canonical_ref = self.symbols.canonical_ref_for(sym_ref);
-                meta.dependencies.push(canonical_ref.owner);
+                meta.dependencies.insert(canonical_ref.owner);
               } else {
                 // `None` means the member expression resolve to a ambiguous export, which means it actually resolve to nothing.
                 // It would be rewrite to `undefined` in the final code, so we don't need to include anything to make `undefined` work.
@@ -616,7 +580,11 @@ fn is_external_dynamic_import(
     && record.resolved_module != module_idx
 }
 
-pub fn init_entry_point_stmt_info(meta: &mut LinkingMetadata) {
+pub fn init_entry_point_stmt_info(
+  meta: &mut LinkingMetadata,
+  entry: &EntryPoint,
+  dynamic_import_exports_usage_map: &FxHashMap<ModuleIdx, DynamicImportExportsUsage>,
+) {
   let mut referenced_symbols = vec![];
 
   // Include the wrapper if present
@@ -626,8 +594,12 @@ pub fn init_entry_point_stmt_info(meta: &mut LinkingMetadata) {
     referenced_symbols.push(meta.wrapper_ref.unwrap());
   }
 
+  referenced_symbols.extend(
+    meta
+      .referenced_canonical_exports_symbols(entry.id, entry.kind, dynamic_import_exports_usage_map)
+      .map(|(_, resolved_export)| resolved_export.symbol_ref),
+  );
   // Entry chunk need to generate exports, so we need reference to all exports to make sure they are included in tree-shaking.
-  referenced_symbols.extend(meta.canonical_exports().map(|(_, export)| export.symbol_ref));
 
   meta.referenced_symbols_by_entry_point_chunk.extend(referenced_symbols);
 }

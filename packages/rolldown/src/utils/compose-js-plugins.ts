@@ -6,11 +6,11 @@ import {
 } from '../plugin'
 import { normalizeHook } from './normalize-hook'
 import { isNullish } from './misc'
-import { BuiltinPlugin } from '../plugin/builtin-plugin'
+import { BuiltinPlugin } from '../builtin-plugin/constructors'
 import { TupleToUnion } from 'type-fest'
 import * as R from 'remeda'
 import { PluginHookNames } from '../constants/plugin'
-import { AssertNever } from './type-assert'
+import { AssertNever } from '../types/assert'
 import {
   PluginContext,
   PrivatePluginContextResolveOptions,

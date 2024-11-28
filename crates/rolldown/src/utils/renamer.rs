@@ -4,7 +4,10 @@ use rolldown_common::{
   IndexModules, ModuleIdx, NormalModule, OutputFormat, SymbolNameRefToken, SymbolRef, SymbolRefDb,
 };
 use rolldown_rstr::{Rstr, ToRstr};
-use rolldown_utils::rayon::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rolldown_utils::{
+  concat_string,
+  rayon::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
@@ -35,7 +38,7 @@ pub struct Renamer<'name> {
 }
 
 impl<'name> Renamer<'name> {
-  pub fn new(symbols: &'name SymbolRefDb, _modules_len: usize, format: &OutputFormat) -> Self {
+  pub fn new(symbols: &'name SymbolRefDb, _modules_len: usize, format: OutputFormat) -> Self {
     // Port from https://github.com/rollup/rollup/blob/master/src/Chunk.ts#L1377-L1394.
     let manual_reserved = match format {
       OutputFormat::Esm | OutputFormat::App => vec![],
@@ -71,7 +74,7 @@ impl<'name> Renamer<'name> {
               let next_conflict_index = *occ.get() + 1;
               *occ.get_mut() = next_conflict_index;
               candidate_name =
-                format!("{original_name}${}", itoa::Buffer::new().format(next_conflict_index))
+                concat_string!(original_name, "$", itoa::Buffer::new().format(next_conflict_index))
                   .into();
             }
             Entry::Vacant(vac) => {
@@ -97,7 +100,7 @@ impl<'name> Renamer<'name> {
           let next_conflict_index = *occ.get() + 1;
           *occ.get_mut() = next_conflict_index;
           conflictless_name =
-            format!("{hint}${}", itoa::Buffer::new().format(next_conflict_index)).into();
+            concat_string!(hint, "$", itoa::Buffer::new().format(next_conflict_index)).into();
         }
         Entry::Vacant(vac) => {
           vac.insert(0);
@@ -108,6 +111,7 @@ impl<'name> Renamer<'name> {
     conflictless_name.to_string()
   }
 
+  #[allow(dead_code)]
   pub fn add_symbol_name_ref_token(&mut self, token: &SymbolNameRefToken) {
     let hint = Rstr::new(token.value());
     let mut conflictless_name = hint.clone();
@@ -117,7 +121,7 @@ impl<'name> Renamer<'name> {
           let next_conflict_index = *occ.get() + 1;
           *occ.get_mut() = next_conflict_index;
           conflictless_name =
-            format!("{hint}${}", itoa::Buffer::new().format(next_conflict_index)).into();
+            concat_string!(hint, "$", itoa::Buffer::new().format(next_conflict_index)).into();
         }
         Entry::Vacant(vac) => {
           vac.insert(0);
@@ -142,7 +146,6 @@ impl<'name> Renamer<'name> {
       let mut used_canonical_names_for_this_scope = FxHashMap::default();
       used_canonical_names_for_this_scope.shrink_to(bindings.len());
       bindings.iter().for_each(|(binding_name, symbol_id)| {
-        used_canonical_names_for_this_scope.insert(binding_name.to_rstr(), 0);
         let binding_ref: SymbolRef = (module.idx, *symbol_id).into();
 
         let mut count = 1;
@@ -151,11 +154,12 @@ impl<'name> Renamer<'name> {
           Entry::Vacant(slot) => loop {
             let is_shadowed = stack
               .iter()
-              .any(|used_canonical_names| used_canonical_names.contains_key(&candidate_name));
+              .any(|used_canonical_names| used_canonical_names.contains_key(&candidate_name))
+              || used_canonical_names_for_this_scope.contains_key(&candidate_name);
 
             if is_shadowed {
               candidate_name =
-                format!("{binding_name}${}", itoa::Buffer::new().format(count)).into();
+                concat_string!(binding_name, "$", itoa::Buffer::new().format(count)).into();
               count += 1;
             } else {
               used_canonical_names_for_this_scope.insert(candidate_name.clone(), 0);
@@ -167,6 +171,7 @@ impl<'name> Renamer<'name> {
             // The symbol is already renamed
           }
         }
+        used_canonical_names_for_this_scope.insert(binding_name.to_rstr(), 0);
       });
 
       stack.push(Cow::Owned(used_canonical_names_for_this_scope));

@@ -1,5 +1,6 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
@@ -28,7 +29,7 @@ console.log("b:", data_default);
 ```js
 
 //#region data.json
-const test = 123;
+var test = 123;
 var data_default = { test };
 
 //#endregion

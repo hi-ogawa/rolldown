@@ -34,7 +34,8 @@ async fn filename_with_hash() {
     let config_path = dunce::simplified(&config_path);
     let fixture_path = config_path.parent().unwrap();
 
-    let TestConfig { config: mut options, meta } = read_test_config(config_path);
+    let TestConfig { config: mut options, meta, config_variants: _not_supported } =
+      read_test_config(config_path);
 
     if options.cwd.is_none() {
       options.cwd = Some(fixture_path.to_path_buf());
@@ -42,7 +43,11 @@ async fn filename_with_hash() {
 
     let integration_test =
       IntegrationTest::new(TestMeta { write_to_disk: false, hash_in_filename: true, ..meta });
-    let assets = integration_test.bundle(options).await;
+    if meta.expect_error {
+      // Output is expected to be dirty. No need to record.
+      continue;
+    }
+    let assets = integration_test.bundle(options).await.unwrap();
 
     snapshot_output.push_str(&format!("# {}\n\n", fixture_path.relative(&cwd).to_slash_lossy()));
 

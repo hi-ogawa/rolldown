@@ -1,5 +1,5 @@
 # Reason
-1. import record with attributes
+1. not support import attributes
 # Diff
 ## /out.js
 ### esbuild
@@ -17,7 +17,7 @@ console.log(data_default === data_default, data_default !== data_default2);
 ```js
 
 //#region data.json
-const works = true;
+var works = true;
 var data_default = { works };
 
 //#endregion

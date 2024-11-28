@@ -85,9 +85,11 @@ async function watchInner(
   watcher.on('event', (event) => {
     switch (event.code) {
       case 'BUNDLE_START':
-        logger.log(
-          `Found ${colors.bold(changedFile.map(relativeId).join(', '))} changed, rebuilding...`,
-        )
+        if (changedFile.length > 0) {
+          logger.log(
+            `Found ${colors.bold(changedFile.map(relativeId).join(', '))} changed, rebuilding...`,
+          )
+        }
         changedFile.length = 0
         break
 
@@ -95,6 +97,10 @@ async function watchInner(
         logger.success(
           `Rebuilt ${colors.bold(relativeId(event.output[0]))} in ${colors.bold(ms(event.duration))}.`,
         )
+        break
+
+      case 'ERROR':
+        logger.error(event.error)
         break
 
       default:

@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(
   feature = "deserialize_bundler_options",
   derive(Deserialize, JsonSchema),
@@ -24,7 +24,7 @@ impl OutputFormat {
   }
 
   #[inline]
-  pub fn keep_esm_import_export(&self) -> bool {
+  pub fn keep_esm_import_export_syntax(&self) -> bool {
     matches!(self, Self::Esm)
   }
 

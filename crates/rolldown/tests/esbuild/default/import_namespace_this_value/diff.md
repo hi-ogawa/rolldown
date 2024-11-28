@@ -12,10 +12,10 @@ console.log(ns[foo](), new ns[foo]());
 ```js
 "use strict";
 const require_chunk = require('./chunk.js');
-const ns = __toESM(require("external"));
+const external = require_chunk.__toESM(require("external"));
 
 //#region a.js
-console.log(ns[foo](), new ns[foo]());
+console.log(external[foo](), new external[foo]());
 
 //#endregion
 ```
@@ -25,9 +25,11 @@ console.log(ns[foo](), new ns[foo]());
 --- esbuild	/out/a.js
 +++ rolldown	a.js
 @@ -1,2 +1,3 @@
+-var ns = __toESM(require("external"));
+-console.log(ns[foo](), new ns[foo]());
 +var require_chunk = require('./chunk.js');
- var ns = __toESM(require("external"));
- console.log(ns[foo](), new ns[foo]());
++var external = require_chunk.__toESM(require("external"));
++console.log(external[foo](), new external[foo]());
 
 ```
 ## /out/b.js
@@ -41,10 +43,10 @@ console.log(ns.foo(), new ns.foo());
 ```js
 "use strict";
 const require_chunk = require('./chunk.js');
-const ns = __toESM(require("external"));
+const external = require_chunk.__toESM(require("external"));
 
 //#region b.js
-console.log(ns.foo(), new ns.foo());
+console.log(external.foo(), new external.foo());
 
 //#endregion
 ```
@@ -54,9 +56,11 @@ console.log(ns.foo(), new ns.foo());
 --- esbuild	/out/b.js
 +++ rolldown	b.js
 @@ -1,2 +1,3 @@
+-var ns = __toESM(require("external"));
+-console.log(ns.foo(), new ns.foo());
 +var require_chunk = require('./chunk.js');
- var ns = __toESM(require("external"));
- console.log(ns.foo(), new ns.foo());
++var external = require_chunk.__toESM(require("external"));
++console.log(external.foo(), new external.foo());
 
 ```
 ## /out/c.js
@@ -71,11 +75,11 @@ console.log(new import_external.default(), new import_external.foo());
 ```js
 "use strict";
 const require_chunk = require('./chunk.js');
-const { default: def, foo } = __toESM(require("external"));
+const external = require_chunk.__toESM(require("external"));
 
 //#region c.js
-console.log(def(), foo());
-console.log(new def(), new foo());
+console.log((0, external.default)(), (0, external.foo)());
+console.log(new external.default(), new external.foo());
 
 //#endregion
 ```
@@ -89,8 +93,8 @@ console.log(new def(), new foo());
 -console.log((0, import_external.default)(), (0, import_external.foo)());
 -console.log(new import_external.default(), new import_external.foo());
 +var require_chunk = require('./chunk.js');
-+var {default: def, foo} = __toESM(require("external"));
-+console.log(def(), foo());
-+console.log(new def(), new foo());
++var external = require_chunk.__toESM(require("external"));
++console.log((0, external.default)(), (0, external.foo)());
++console.log(new external.default(), new external.foo());
 
 ```

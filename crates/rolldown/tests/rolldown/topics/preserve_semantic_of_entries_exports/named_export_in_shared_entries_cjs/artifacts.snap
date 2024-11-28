@@ -1,34 +1,23 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
 ## entry.js
 
 ```js
-"use strict";
 const require_main = require('./main.js');
 
-Object.defineProperty(exports, 'default', {
-  enumerable: true,
-  get: function () {
-    return require_main.main_default;
-  }
-});
+exports.default = require_main.main_default
 exports.foo = require_main.foo
 ```
 ## entry2.js
 
 ```js
-"use strict";
 const require_main = require('./main.js');
 
-Object.defineProperty(exports, 'default', {
-  enumerable: true,
-  get: function () {
-    return require_main.main_default;
-  }
-});
+exports.default = require_main.main_default
 exports.foo = require_main.foo
 ```
 ## main.js

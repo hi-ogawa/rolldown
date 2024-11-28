@@ -1,15 +1,22 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use crate::css::css_view::CssView;
+use crate::types::module_render_output::ModuleRenderOutput;
 use crate::{
-  AssetView, DebugStmtInfoForTreeShaking, ExportsKind, ImportRecordIdx, ImportRecordMeta, ModuleId,
-  ModuleIdx, ModuleInfo, StmtInfo,
+  AssetView, Comments, DebugStmtInfoForTreeShaking, ExportsKind, ImportRecordIdx, ImportRecordMeta,
+  ModuleId, ModuleIdx, ModuleInfo, NormalizedBundlerOptions, StmtInfo,
 };
 use crate::{EcmaAstIdx, EcmaView, IndexModules, Interop, Module, ModuleType};
 use std::ops::{Deref, DerefMut};
 
+use either::Either;
+use oxc::codegen::LegalComment;
+use rolldown_ecmascript::{EcmaAst, EcmaCompiler, PrintOptions};
 use rolldown_rstr::Rstr;
+use rolldown_sourcemap::collapse_sourcemaps;
 use rustc_hash::FxHashSet;
+use string_wizard::SourceMapOptions;
 
 #[derive(Debug)]
 pub struct NormalModule {
@@ -36,7 +43,7 @@ impl NormalModule {
           .ecma_view
           .import_records
           .iter()
-          .filter(|&rec| rec.meta.contains(ImportRecordMeta::IS_EXPORT_START))
+          .filter(|&rec| rec.meta.contains(ImportRecordMeta::IS_EXPORT_STAR))
           .map(|rec| rec.resolved_module),
       )
     } else {
@@ -141,7 +148,7 @@ impl NormalModule {
     modules: &'me IndexModules,
   ) -> impl Iterator<Item = ImportRecordIdx> + 'me {
     self.ecma_view.import_records.iter_enumerated().filter_map(move |(rec_id, rec)| {
-      if !rec.meta.contains(ImportRecordMeta::IS_EXPORT_START) {
+      if !rec.meta.contains(ImportRecordMeta::IS_EXPORT_STAR) {
         return None;
       }
       match modules[rec.resolved_module] {
@@ -161,6 +168,52 @@ impl NormalModule {
     } else {
       None
     }
+  }
+
+  pub fn render(
+    &self,
+    options: &NormalizedBundlerOptions,
+    args: &ModuleRenderArgs,
+  ) -> Option<ModuleRenderOutput> {
+    match args {
+      ModuleRenderArgs::Ecma { ast } => {
+        let enable_sourcemap = options.sourcemap.is_some() && !self.is_virtual();
+
+        let comments = match options.comments {
+          Comments::None => Either::Left(false),
+          Comments::Preserve => Either::Left(true),
+          Comments::PreserveLegal => Either::Right(LegalComment::Inline),
+        };
+
+        // Because oxc codegen sourcemap is last of sourcemap chain,
+        // If here no extra sourcemap need remapping, we using it as final module sourcemap.
+        // So here make sure using correct `source_name` and `source_content.
+        let render_output = EcmaCompiler::print_with(
+          ast,
+          PrintOptions { sourcemap: enable_sourcemap, filename: self.id.to_string(), comments },
+        );
+        if !self.ecma_view.mutations.is_empty() {
+          let original_code: Arc<str> = render_output.code.into();
+          let mut magic_string = string_wizard::MagicString::new(&*original_code);
+          for mutation in &self.ecma_view.mutations {
+            mutation.apply(&mut magic_string);
+          }
+          let code = magic_string.to_string();
+          let mutated_map = magic_string.source_map(SourceMapOptions {
+            source: Arc::clone(&original_code),
+            ..Default::default()
+          });
+          let map =
+            render_output.map.map(|original| collapse_sourcemaps(vec![&original, &mutated_map]));
+          return Some(ModuleRenderOutput { code, map });
+        }
+        Some(ModuleRenderOutput { code: render_output.code, map: render_output.map })
+      }
+    }
+  }
+
+  pub fn is_included(&self) -> bool {
+    self.ecma_view.meta.is_included()
   }
 }
 
@@ -183,4 +236,8 @@ impl DerefMut for NormalModule {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.ecma_view
   }
+}
+
+pub enum ModuleRenderArgs<'any> {
+  Ecma { ast: &'any EcmaAst },
 }

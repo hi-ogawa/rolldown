@@ -1,6 +1,6 @@
 use oxc::{
   ast::{
-    ast::{Expression, MemberExpression},
+    ast::{self, Expression, MemberExpression},
     comments_range, Comment, CommentKind,
   },
   semantic::ReferenceId,
@@ -8,7 +8,7 @@ use oxc::{
   syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator},
 };
 use rolldown_common::AstScopes;
-use rolldown_ecmascript_utils::ExpressionExt;
+use rolldown_ecmascript_utils::{ExpressionExt, SpanExt};
 
 use super::SideEffectDetector;
 
@@ -34,10 +34,16 @@ impl<'a> SideEffectDetector<'a> {
   pub fn leading_comment_for(&self, span: Span) -> Option<(&Comment, &str)> {
     let comment = comments_range(self.comments, ..span.start).next_back()?;
 
-    let comment_text = comment.span.source_text(self.source);
+    let comment_span = comment.content_span();
+
+    let comment_text = comment_span.source_text(self.source);
     // If there are non-whitespace characters between the `comment` and the `span`,
     // we treat the `comment` not belongs to the `span`.
-    let range_text = Span::new(comment.span.end, span.start).source_text(self.source);
+    let leading_comment_span = Span::new(comment_span.end, span.start);
+    if !leading_comment_span.is_valid(self.source) {
+      return None;
+    }
+    let range_text = leading_comment_span.source_text(self.source);
     let only_whitespace = match comment.kind {
       CommentKind::Line => range_text.trim().is_empty(),
       CommentKind::Block => {
@@ -319,7 +325,7 @@ pub fn is_side_effect_free_unbound_identifier_ref(
   mut is_yes_branch: bool,
 ) -> Option<bool> {
   let ident = value.as_identifier()?;
-  let is_unresolved = scope.is_unresolved(ident.reference_id()?);
+  let is_unresolved = scope.is_unresolved(ident.reference_id());
   if !is_unresolved {
     return Some(false);
   }
@@ -385,4 +391,101 @@ pub fn is_side_effect_free_unbound_identifier_ref(
     _ => {}
   }
   Some(false)
+}
+
+/// https://github.com/evanw/esbuild/blob/d34e79e2a998c21bb71d57b92b0017ca11756912/internal/js_parser/js_parser.go#L16119-L16237
+pub fn maybe_side_effect_free_global_constructor(
+  scope: &AstScopes,
+  expr: &ast::NewExpression<'_>,
+) -> bool {
+  let Some(ident) = expr.callee.as_identifier() else {
+    return false;
+  };
+
+  if scope.is_unresolved(ident.reference_id()) {
+    match ident.name.as_str() {
+      "WeakSet" | "WeakMap" => match expr.arguments.len() {
+        0 => return true,
+        1 => {
+          let arg = &expr.arguments[0];
+          match arg {
+            ast::Argument::NullLiteral(_) => return true,
+            ast::Argument::Identifier(id)
+              if id.name == "undefined" && scope.is_unresolved(id.reference_id()) =>
+            {
+              return true
+            }
+            ast::Argument::ArrayExpression(arr) if arr.elements.is_empty() => return true,
+            _ => {}
+          }
+        }
+        _ => {}
+      },
+      "Date" => match expr.arguments.len() {
+        0 => return true,
+        1 => {
+          let arg = &expr.arguments[0];
+          let known_primitive_type =
+            arg.as_expression().map(|item| known_primitive_type(scope, item));
+          if let Some(primitive_ty) = known_primitive_type {
+            if matches!(
+              primitive_ty,
+              PrimitiveType::Number
+                | PrimitiveType::String
+                | PrimitiveType::Null
+                | PrimitiveType::Undefined
+                | PrimitiveType::Boolean
+            ) {
+              return true;
+            }
+          }
+        }
+        _ => {}
+      },
+      "Set" => match expr.arguments.len() {
+        0 => return true,
+        1 => {
+          let arg = &expr.arguments[0];
+          match arg {
+            ast::Argument::NullLiteral(_) | ast::Argument::ArrayExpression(_) => return true,
+            ast::Argument::Identifier(id)
+              if id.name == "undefined" && scope.is_unresolved(id.reference_id()) =>
+            {
+              return true
+            }
+            _ => {}
+          }
+        }
+        _ => {}
+      },
+      "Map" => match expr.arguments.len() {
+        0 => return true,
+        1 => {
+          let arg = &expr.arguments[0];
+          match arg {
+            ast::Argument::NullLiteral(_) => return true,
+            ast::Argument::Identifier(id)
+              if id.name == "undefined" && scope.is_unresolved(id.reference_id()) =>
+            {
+              return true
+            }
+            ast::Argument::ArrayExpression(arr) => {
+              let all_entries_are_arrays = arr.elements.iter().all(|item| {
+                item
+                  .as_expression()
+                  .is_some_and(|expr| matches!(expr, ast::Expression::ArrayExpression(_)))
+              });
+              if all_entries_are_arrays {
+                return true;
+              }
+            }
+            _ => {}
+          }
+        }
+        _ => {}
+      },
+      _ => {}
+    }
+  }
+  false
 }

@@ -31,8 +31,11 @@ pub enum EventKind {
   CommonJsVariableInEsm,
   ExportUndefinedVariable,
   ImportIsUndefined,
-
+  UnsupportedFeature,
   UnhandleableError,
+  AssignToImport,
+  JsonParse,
+  InvalidDefineConfig,
 }
 
 impl Display for EventKind {
@@ -67,6 +70,10 @@ impl Display for EventKind {
       },
       EventKind::ImportIsUndefined => write!(f, "IMPORT_IS_UNDEFINED"),
       EventKind::UnhandleableError => write!(f, "UNHANDLEABLE_ERROR"),
+      EventKind::UnsupportedFeature => write!(f, "UNSUPPORTED_FEATURE"),
+      EventKind::AssignToImport => write!(f, "ASSIGN_TO_IMPORT"),
+      EventKind::JsonParse => write!(f, "JSON_PARSE"),
+      EventKind::InvalidDefineConfig => write!(f, "INVALID_DEFINE_CONFIG"),
     }
   }
 }

@@ -3,20 +3,20 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
+use oxc::span::Span;
 use rolldown_rstr::Rstr;
 
-use crate::{ImportKind, ModuleIdx, SymbolRef};
+use crate::{ImportKind, ModuleIdx, ModuleType, SymbolRef};
 
-oxc::index::define_index_type! {
+oxc_index::define_index_type! {
   pub struct ImportRecordIdx = u32;
 }
 
 #[derive(Debug)]
-pub struct ImportRecordStateStart {
-  /// Why use start_offset instead of `Span`? Cause, directly pass `Span` will increase the type
-  /// size from `40` to `48`(8 bytes alignment). Since the `RawImportRecord` will be created multiple time,
-  /// Using this trick could save some memory.
-  pub module_request_start: u32,
+pub struct ImportRecordStateInit {
+  pub span: Span,
+  /// The importee of this import record is asserted to be this specific module type.
+  pub asserted_module_type: Option<ModuleType>,
 }
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ bitflags::bitflags! {
     /// the import is inserted during ast transformation, can't get source slice from the original source file
     const IS_UNSPANNED_IMPORT = 1 << 3;
     /// `export * from 'mod'` only
-    const IS_EXPORT_START = 1 << 4;
+    const IS_EXPORT_STAR = 1 << 4;
     ///  Tell the finalizer to use the runtime "__require()" instead of "require()"
     const CALL_RUNTIME_REQUIRE = 1 << 5;
     ///  `require('mod')` is used to load the module only
@@ -76,32 +76,28 @@ impl<T: Debug> DerefMut for ImportRecord<T> {
   }
 }
 
-pub type RawImportRecord = ImportRecord<ImportRecordStateStart>;
+pub type RawImportRecord = ImportRecord<ImportRecordStateInit>;
 
 impl RawImportRecord {
   pub fn new(
     specifier: Rstr,
     kind: ImportKind,
     namespace_ref: SymbolRef,
-    module_request_start: u32,
+    span: Span,
+    assert_module_type: Option<ModuleType>,
   ) -> RawImportRecord {
     RawImportRecord {
       module_request: specifier,
       kind,
       namespace_ref,
       meta: ImportRecordMeta::empty(),
-      state: ImportRecordStateStart { module_request_start },
+      state: ImportRecordStateInit { span, asserted_module_type: assert_module_type },
     }
   }
 
   pub fn with_meta(mut self, meta: ImportRecordMeta) -> Self {
     self.meta = meta;
     self
-  }
-
-  #[allow(clippy::cast_possible_truncation)]
-  pub fn module_request_end(&self) -> u32 {
-    self.module_request_start + self.module_request.len() as u32 + 2u32 // +2 for quotes
   }
 
   pub fn into_resolved(self, resolved_module: ModuleIdx) -> ResolvedImportRecord {

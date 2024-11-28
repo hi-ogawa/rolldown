@@ -1,6 +1,6 @@
 crates/**
 packages/rollup-tests/**
-packages/rolldown/tests/fixtures
+packages/rolldown/tests/fixtures/**
 packages/rolldown/src/binding.d.ts
 rollup/**
 examples/react-hmr/plugin-react-refresh/index.cjs

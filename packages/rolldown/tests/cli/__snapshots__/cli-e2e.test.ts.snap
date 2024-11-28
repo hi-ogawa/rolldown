@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`basic arguments > should render help message for empty args 1`] = `
-"Fast JavaScript/TypeScript bundler in Rust with Rollup-compatible API. (rolldown v0.13.2)
+"Fast JavaScript/TypeScript bundler in Rust with Rollup-compatible API. (rolldown v0.14.0)
 
 USAGE rolldown -c <config> or rolldown <input> <options>
 
@@ -15,24 +15,28 @@ OPTIONS
   --help -h,                  Show help.
   --minify -m,                Minify the bundled file.
   --name -n, <name>           Name for UMD / IIFE format outputs.
+  --file -o, <file>           Single output file.
   --platform -p, <platform>   Platform for which the code should be generated (node, browser, neutral).
   --sourcemap -s, <sourcemap> Generate sourcemap (\`-s inline\` for inline, or pass the \`-s\` on the last argument if you want to generate \`.map\` file).
   --version -v,               Show version number.
   --watch -w,                 Watch files in bundle and rebuild on changes.
   --advanced-chunks.min-share-count <advanced-chunks.min-share-count>Minimum share count of the chunk.
   --advanced-chunks.min-size <advanced-chunks.min-size>Minimum size of the chunk.
-  --asset-file-names <name>   .
+  --asset-file-names <name>   Name pattern for asset files.
   --banner <banner>           Code to insert the top of the bundled file (outside the wrapper function).
-  --chunk-file-names <name>   .
+  --chunk-file-names <name>   Name pattern for emitted secondary chunks.
+  --comments <comments>       Control comments in the output.
+  --css-chunk-file-names <css-chunk-file-names>Name pattern for emitted css secondary chunks.
+  --css-entry-file-names <css-entry-file-names>Name pattern for emitted css entry chunks.
   --cwd <cwd>                 Current working directory.
   --define <define>           Define global variables.
-  --dev                       .
-  --entry-file-names <name>   .
+  --drop-labels <drop-labels> Remove labeled statements with these label names.
+  --entry-file-names <name>   Name pattern for emitted entry chunks.
   --es-module                 Always generate \`__esModule\` marks in non-ESM formats, defaults to \`if-default-prop\` (use \`--no-esModule\` to always disable).
   --exports <exports>         Specify a export mode (auto, named, default, none).
   --extend                    Extend global variable defined by name in IIFE / UMD formats.
-  --file <file>               Single output file.
   --footer <footer>           Code to insert the bottom of the bundled file (outside the wrapper function).
+  --hash-characters <hash-characters>Use the specified character set for file hashes.
   --inject <inject>           Inject import statements on demand.
   --inline-dynamic-imports    Inline dynamic imports.
   --intro <intro>             Code to insert the top of the bundled file (inside the wrapper function).
@@ -48,7 +52,7 @@ OPTIONS
   --no-external-live-bindings Disable external live bindings.
   --no-treeshake              Disable treeshaking.
   --outro <outro>             Code to insert the bottom of the bundled file (inside the wrapper function).
-  --shim-missing-exports      .
+  --shim-missing-exports      Create shim variables for missing exports.
 
 EXAMPLES
 
@@ -79,23 +83,46 @@ exports[`cli options for bundling > should handle negative boolean options 1`] =
 "(function(exports, node_fs) {
 
 "use strict";
-const { read, readFile, readFileSync, readSync } = node_fs;
+//#region rolldown:runtime
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
+		key = keys[i];
+		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
+			get: ((k) => from[k]).bind(null, key),
+			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+		});
+	}
+	return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
+	value: mod,
+	enumerable: true
+}) : target, mod));
+
+//#endregion
+node_fs = __toESM(node_fs);
 
 //#region index.ts
 const nonExternal = "nonExternal";
 
 //#endregion
 exports.nonExternal = nonExternal
-exports.read = read
-exports.readFile = readFile
-exports.readFileSync = readFileSync
-exports.readSync = readSync
+exports.read = node_fs.read
+exports.readFile = node_fs.readFile
+exports.readFileSync = node_fs.readFileSync
+exports.readSync = node_fs.readSync
 return exports;
 })({}, node_fs);"
 `;
 
 exports[`cli options for bundling > should handle pass \`-s\` options 1`] = `
-"<DIR>/index.js.map  asset │ size: 0.22 kB
+"<DIR>/index.js.map  asset │ size: 0.21 kB
 <DIR>/index.js      chunk │ size: 0.19 kB
 
 "
@@ -127,6 +154,12 @@ exports[`cli options for bundling > should handle single object options 1`] = `
 
 exports[`cli options for bundling > should handle single string options 1`] = `
 "<DIR>/index.js  chunk │ size: 0.14 kB
+
+"
+`;
+
+exports[`config > no package.json > should allow loading ts config with tsx 1`] = `
+"<DIR>/index.js  chunk │ size: 0.11 kB
 
 "
 `;

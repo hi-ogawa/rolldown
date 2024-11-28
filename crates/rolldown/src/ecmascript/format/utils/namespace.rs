@@ -8,7 +8,7 @@ use crate::types::generator::GenerateContext;
 use arcstr::ArcStr;
 use rolldown_common::OutputExports;
 use rolldown_error::{BuildDiagnostic, BuildResult};
-use rolldown_utils::ecmascript::is_validate_assignee_identifier_name;
+use rolldown_utils::{concat_string, ecmascript::is_validate_assignee_identifier_name};
 
 /// According to the amount of `.` in the name (levels),
 /// it generates the initialization code and the final code.
@@ -64,16 +64,15 @@ pub fn generate_namespace_definition(
 ///
 /// As for the namespaced name (including `.`), please refer to the `generate_namespace_definition` function.
 pub fn generate_identifier(
-  ctx: &mut GenerateContext<'_>,
-  export_mode: &OutputExports,
+  warnings: &mut Vec<BuildDiagnostic>,
+  ctx: &GenerateContext<'_>,
+  export_mode: OutputExports,
 ) -> BuildResult<(String, String)> {
   // Handle the diagnostic warning
   if ctx.options.name.as_ref().map_or(true, String::is_empty)
     && !matches!(export_mode, OutputExports::None)
   {
-    ctx
-      .warnings
-      .push(BuildDiagnostic::missing_name_option_for_iife_export().with_severity_warning());
+    warnings.push(BuildDiagnostic::missing_name_option_for_iife_export().with_severity_warning());
   }
 
   // Early return if `name` is None
@@ -130,9 +129,9 @@ pub fn generate_identifier(
 /// - Otherwise, it will generate a caller like `["if"]`.
 pub fn render_property_access(name: &str) -> String {
   if is_validate_assignee_identifier_name(name) {
-    format!(".{name}")
+    concat_string!(".", name)
   } else {
-    format!("[\"{name}\"]")
+    concat_string!("[\"", name, "\"]")
   }
 }
 

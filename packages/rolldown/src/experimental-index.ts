@@ -12,10 +12,11 @@ export {
   importGlobPlugin,
   manifestPlugin,
   loadFallbackPlugin,
-  transformPlugin,
-  aliasPlugin,
   jsonPlugin,
   buildImportAnalysisPlugin,
-  replacePlugin,
-  reactPlugin,
-} from './plugin/builtin-plugin'
+  viteResolvePlugin,
+} from './builtin-plugin/constructors'
+
+export { transformPlugin } from './builtin-plugin/transform-plugin'
+export { replacePlugin } from './builtin-plugin/replace-plugin'
+export { aliasPlugin } from './builtin-plugin/alias-plugin'

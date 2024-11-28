@@ -364,21 +364,26 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
+module.exports.BindingBundleEndEventData = nativeBinding.BindingBundleEndEventData
+module.exports.BindingCallableBuiltinPlugin = nativeBinding.BindingCallableBuiltinPlugin
 module.exports.BindingLog = nativeBinding.BindingLog
 module.exports.BindingModuleInfo = nativeBinding.BindingModuleInfo
+module.exports.BindingNormalizedOptions = nativeBinding.BindingNormalizedOptions
 module.exports.BindingOutputAsset = nativeBinding.BindingOutputAsset
 module.exports.BindingOutputChunk = nativeBinding.BindingOutputChunk
 module.exports.BindingOutputs = nativeBinding.BindingOutputs
 module.exports.BindingPluginContext = nativeBinding.BindingPluginContext
+module.exports.BindingRenderedModule = nativeBinding.BindingRenderedModule
 module.exports.BindingTransformPluginContext = nativeBinding.BindingTransformPluginContext
 module.exports.BindingWatcher = nativeBinding.BindingWatcher
+module.exports.BindingWatcherChangeData = nativeBinding.BindingWatcherChangeData
+module.exports.BindingWatcherEvent = nativeBinding.BindingWatcherEvent
 module.exports.Bundler = nativeBinding.Bundler
 module.exports.ParallelJsPluginRegistry = nativeBinding.ParallelJsPluginRegistry
 module.exports.BindingBuiltinPluginName = nativeBinding.BindingBuiltinPluginName
 module.exports.BindingHookSideEffects = nativeBinding.BindingHookSideEffects
 module.exports.BindingLogLevel = nativeBinding.BindingLogLevel
 module.exports.BindingPluginOrder = nativeBinding.BindingPluginOrder
-module.exports.BindingWatcherEvent = nativeBinding.BindingWatcherEvent
 module.exports.isolatedDeclaration = nativeBinding.isolatedDeclaration
 module.exports.registerPlugins = nativeBinding.registerPlugins
 module.exports.transform = nativeBinding.transform

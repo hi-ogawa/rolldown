@@ -15,61 +15,12 @@ import {
   type LogLevelOption,
   type LogLevel,
 } from './logging'
-import { error, logPluginError } from './logs'
-import { getLogHandler, normalizeLog } from './logHandler'
+import { error } from './logs'
+import { normalizeLog } from './logHandler'
 import type { InputOptions } from '../options/input-options'
-import type { NormalizedInputOptions } from '../options/normalized-input-options'
 import path from 'node:path'
 import { VERSION } from '..'
-
-export interface PluginContextMeta {
-  rollupVersion: string
-  rolldownVersion: string
-  watchMode: boolean
-}
-
-export class MinimalPluginContext {
-  debug: LoggingFunction
-  info: LoggingFunction
-  meta: PluginContextMeta
-  warn: LoggingFunction
-  readonly error: (error: RollupError | string) => never
-
-  constructor(options: NormalizedInputOptions, plugin: Plugin) {
-    const onLog = options.onLog
-    const pluginName = plugin.name || 'unknown'
-    const logLevel = options.logLevel
-    this.debug = getLogHandler(
-      LOG_LEVEL_DEBUG,
-      'PLUGIN_LOG',
-      onLog,
-      pluginName,
-      logLevel,
-    )
-    this.info = getLogHandler(
-      LOG_LEVEL_INFO,
-      'PLUGIN_LOG',
-      onLog,
-      pluginName,
-      logLevel,
-    )
-    this.warn = getLogHandler(
-      LOG_LEVEL_WARN,
-      'PLUGIN_WARNING',
-      onLog,
-      pluginName,
-      logLevel,
-    )
-    this.error = (e): never => {
-      return error(logPluginError(normalizeLog(e), pluginName))
-    }
-    this.meta = {
-      rollupVersion: '4.23.0',
-      rolldownVersion: VERSION,
-      watchMode: false,
-    }
-  }
-}
+import { getSortedPlugins } from '../plugin/plugin-driver'
 
 export function getLogger(
   plugins: Plugin[],
@@ -86,7 +37,7 @@ export function getLogger(
     if (logPriority < minimalPriority) {
       return
     }
-    for (const plugin of plugins) {
+    for (const plugin of getSortedPlugins('onLog', plugins)) {
       if (skipped.has(plugin)) continue
 
       const { onLog: pluginOnLog } = plugin
@@ -134,7 +85,7 @@ export const getOnLog = (
   config: InputOptions,
   logLevel: LogLevelOption,
   printLog = defaultPrintLog,
-): NormalizedInputOptions['onLog'] => {
+): LogHandler => {
   const { onwarn, onLog } = config
   const defaultOnLog = getDefaultOnLog(printLog, onwarn)
   if (onLog) {
