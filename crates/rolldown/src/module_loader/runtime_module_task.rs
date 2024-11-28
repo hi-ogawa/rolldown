@@ -46,7 +46,7 @@ impl RuntimeModuleTask {
     let source = if matches!(self.options.format, rolldown_common::OutputFormat::App) {
       format!(
         "{}{}",
-        include_str!("../runtime/runtime-base.js").replace("export var ", ""),
+        include_str!("../runtime/runtime-base.js").replace("export var", "var"),
         include_str!("../runtime/runtime-app.js")
       )
       .into()
