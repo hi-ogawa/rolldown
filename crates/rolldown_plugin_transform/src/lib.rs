@@ -54,7 +54,9 @@ impl Plugin for TransformPlugin {
       Ok(ecma_ast) => ecma_ast,
       Err(errs) => {
         // TODO: better diagnostics handling
-        return Err(anyhow::format_err!("Error occurred when parsing {}\n: {:?}", args.id, errs));
+        return Err(
+          anyhow::format_err!("Error occurred when parsing {}\n: {:?}", args.id, errs).into(),
+        );
       }
     };
     let ret = ast.program.with_mut(move |fields| {
@@ -84,7 +86,7 @@ impl Plugin for TransformPlugin {
     });
     if !ret.errors.is_empty() {
       // TODO: better error handling
-      return Err(anyhow::anyhow!("Transform failed, got {:#?}", ret.errors));
+      return Err(anyhow::anyhow!("Transform failed, got {:#?}", ret.errors).into());
     }
     let CodegenReturn { code, map, .. } = CodeGenerator::new()
       .with_options(CodegenOptions {

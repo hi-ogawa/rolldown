@@ -155,17 +155,33 @@ impl Plugin for JsPlugin {
     args: &rolldown_plugin::HookTransformArgs<'_>,
   ) -> rolldown_plugin::HookTransformReturn {
     if let Some(cb) = &self.transform {
-      Ok(
-        cb.await_call((
+      let result = cb
+        .await_call((
           BindingTransformPluginContext::new(Arc::clone(&ctx)),
           args.code.to_string(),
           args.id.to_string(),
           BindingTransformHookExtraArgs { module_type: args.module_type.to_string() },
         ))
-        .await?
-        .map(TryInto::try_into)
-        .transpose()?,
-      )
+        .await;
+      // result.map(|result| result.map(|result| result.into_output()))
+      match result {
+        Ok(Some(result)) => Ok(Some(result.into_output().map_err(|e| {
+          anyhow::format_err!("Invalid sourcemap: {}\nplugin: {}\nid: {}", e, self.name(), args.id)
+        })?)),
+        Ok(None) => Ok(None),
+        Err(err) => Err(err.into()),
+      }
+      // Ok(
+      //   cb.await_call((
+      //     BindingTransformPluginContext::new(Arc::clone(&ctx)),
+      //     args.code.to_string(),
+      //     args.id.to_string(),
+      //     BindingTransformHookExtraArgs { module_type: args.module_type.to_string() },
+      //   ))
+      //   .await?
+      //   .map(TryInto::try_into)
+      //   .transpose()?,
+      // )
     } else {
       Ok(None)
     }

@@ -13,6 +13,7 @@ use crate::events::illegal_identifier_as_name::IllegalIdentifierAsName;
 use crate::events::import_is_undefined::ImportIsUndefined;
 use crate::events::invalid_define_config::InvalidDefineConfig;
 use crate::events::invalid_option::{InvalidOption, InvalidOptionType};
+use crate::events::invalid_sourcemap::InvalidSourcemap;
 use crate::events::json_parse::JsonParse;
 use crate::events::missing_global_name::MissingGlobalName;
 use crate::events::missing_name_option_for_iife_export::MissingNameOptionForIifeExport;
@@ -286,6 +287,10 @@ impl BuildDiagnostic {
 
   pub fn invalid_define_config(message: String) -> Self {
     Self::new_inner(InvalidDefineConfig { message })
+  }
+
+  pub fn invalid_sourcemap(message: String) -> Self {
+    Self::new_inner(InvalidSourcemap { message })
   }
 
   pub fn unhandleable_error(err: anyhow::Error) -> Self {

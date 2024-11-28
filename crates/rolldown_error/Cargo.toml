@@ -24,4 +24,5 @@ heck         = { workspace = true }
 napi         = { workspace = true, optional = true }
 oxc          = { workspace = true }
 oxc_resolver = { workspace = true }
+serde_json   = { workspace = true }
 sugar_path   = { workspace = true }

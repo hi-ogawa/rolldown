@@ -20,6 +20,7 @@ pub mod import_is_undefined;
 pub mod invalid_define_config;
 pub mod invalid_export_option;
 pub mod invalid_option;
+pub mod invalid_sourcemap;
 pub mod json_parse;
 pub mod missing_export;
 pub mod missing_global_name;

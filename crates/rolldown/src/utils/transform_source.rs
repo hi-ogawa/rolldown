@@ -11,7 +11,7 @@ pub async fn transform_source(
   sourcemap_chain: &mut Vec<SourceMap>,
   side_effects: &mut Option<HookSideEffects>,
   module_type: &mut ModuleType,
-) -> Result<String> {
+) -> rolldown_error::BuildResult<String> {
   plugin_driver
     .transform(
       &HookTransformArgs { id: &resolved_id.id, code: &source, module_type: &ModuleType::Empty },

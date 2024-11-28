@@ -174,7 +174,7 @@ impl PluginDriver {
     side_effects: &mut Option<HookSideEffects>,
     original_code: &str,
     module_type: &mut ModuleType,
-  ) -> Result<String> {
+  ) -> rolldown_error::BuildResult<String> {
     let mut code = args.code.to_string();
     let mut original_sourcemap_chain = std::mem::take(sourcemap_chain);
     let mut plugin_sourcemap_chain = UniqueArc::new(original_sourcemap_chain);

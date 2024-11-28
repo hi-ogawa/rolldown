@@ -114,6 +114,19 @@ impl From<Vec<BuildDiagnostic>> for BatchedBuildDiagnostic {
   }
 }
 
+#[cfg(feature = "napi")]
+impl From<napi::Error> for BatchedBuildDiagnostic {
+  fn from(e: napi::Error) -> Self {
+    BuildDiagnostic::napi_error(e).into()
+  }
+}
+
+impl From<serde_json::Error> for BatchedBuildDiagnostic {
+  fn from(e: serde_json::Error) -> Self {
+    anyhow::Error::from(e).into()
+  }
+}
+
 impl From<anyhow::Error> for BuildDiagnostic {
   fn from(err: anyhow::Error) -> Self {
     BuildDiagnostic::unhandleable_error(err)

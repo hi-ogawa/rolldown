@@ -9,7 +9,7 @@ mod types;
 pub use types::result_ext::ResultExt;
 
 pub use crate::{
-  build_error::{severity::Severity, BuildDiagnostic},
+  build_error::{severity::Severity, BatchedBuildDiagnostic, BuildDiagnostic},
   event_kind::EventKind,
   events::ambiguous_external_namespace::AmbiguousExternalNamespaceModule,
   events::commonjs_variable_in_esm::CjsExportSpan,

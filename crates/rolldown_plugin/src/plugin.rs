@@ -21,7 +21,7 @@ use rolldown_ecmascript::EcmaAst;
 
 pub type HookResolveIdReturn = Result<Option<HookResolveIdOutput>>;
 pub type HookTransformAstReturn = Result<EcmaAst>;
-pub type HookTransformReturn = Result<Option<HookTransformOutput>>;
+pub type HookTransformReturn = rolldown_error::BuildResult<Option<HookTransformOutput>>;
 pub type HookLoadReturn = Result<Option<HookLoadOutput>>;
 pub type HookNoopReturn = Result<()>;
 pub type HookRenderChunkReturn = Result<Option<HookRenderChunkOutput>>;
