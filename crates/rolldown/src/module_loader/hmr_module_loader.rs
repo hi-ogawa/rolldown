@@ -1,17 +1,14 @@
 use super::module_task::{ModuleTask, ModuleTaskOwner};
 use super::task_context::TaskContextMeta;
-use super::task_result::NormalModuleTaskResult;
-use super::Msg;
 use crate::module_loader::task_context::TaskContext;
 use crate::type_alias::IndexEcmaAst;
 use arcstr::ArcStr;
-use oxc::index::IndexVec;
-use oxc::span::Span;
 use oxc::transformer::ReplaceGlobalDefinesConfig;
+use oxc_index::IndexVec;
 use rolldown_common::side_effects::{DeterminedSideEffects, HookSideEffects};
 use rolldown_common::{
-  ExternalModule, ImportRecordIdx, Module, ModuleDefFormat, ModuleIdx, ModuleTable, ResolvedId,
-  SymbolNameRefToken, SymbolRefDb,
+  EcmaRelated, ExternalModule, ImportRecordIdx, Module, ModuleDefFormat, ModuleIdx,
+  ModuleLoaderMsg, ModuleTable, ModuleType, NormalModuleTaskResult, ResolvedId, SymbolRefDb,
 };
 use rolldown_error::{BuildDiagnostic, BuildResult};
 use rolldown_fs::OsFileSystem;
@@ -43,7 +40,7 @@ impl HmrIntermediateNormalModules {
 pub struct HmrModuleLoader {
   options: SharedOptions,
   shared_context: Arc<TaskContext>,
-  rx: tokio::sync::mpsc::Receiver<Msg>,
+  rx: tokio::sync::mpsc::Receiver<ModuleLoaderMsg>,
   visited: FxHashMap<ArcStr, ModuleIdx>,
   remaining: u32,
   intermediate_normal_modules: HmrIntermediateNormalModules,
@@ -75,7 +72,7 @@ impl HmrModuleLoader {
   ) -> anyhow::Result<Self> {
     // 1024 should be enough for most cases
     // over 1024 pending tasks are insane
-    let (tx, rx) = tokio::sync::mpsc::channel::<Msg>(1024);
+    let (tx, rx) = tokio::sync::mpsc::channel::<ModuleLoaderMsg>(1024);
 
     let meta = TaskContextMeta {
       replace_global_define_config: if options.define.is_empty() {
@@ -119,6 +116,8 @@ impl HmrModuleLoader {
     &mut self,
     resolved_id: ResolvedId,
     owner: Option<ModuleTaskOwner>,
+    is_user_defined_entry: bool,
+    assert_module_type: Option<ModuleType>,
   ) -> ModuleIdx {
     match self.visited.entry(resolved_id.id.clone()) {
       std::collections::hash_map::Entry::Occupied(visited) => *visited.get(),
@@ -148,11 +147,15 @@ impl HmrModuleLoader {
               },
             }
           };
+          let symbol_ref = self.symbol_ref_db.create_facade_root_symbol_ref(
+            idx,
+            legitimize_identifier_name(resolved_id.id.as_str()).into(),
+          );
           let ext = ExternalModule::new(
             idx,
             ArcStr::clone(&resolved_id.id),
             external_module_side_effects,
-            SymbolNameRefToken::new(idx, legitimize_identifier_name(&resolved_id.id).into()),
+            symbol_ref,
           );
           self.intermediate_normal_modules.modules[idx] = Some(ext.into());
           idx
@@ -161,7 +164,14 @@ impl HmrModuleLoader {
           not_visited.insert(idx);
           self.remaining += 1;
 
-          let task = ModuleTask::new(Arc::clone(&self.shared_context), idx, resolved_id, owner);
+          let task = ModuleTask::new(
+            Arc::clone(&self.shared_context),
+            idx,
+            resolved_id,
+            owner,
+            is_user_defined_entry,
+            assert_module_type,
+          );
           #[cfg(target_family = "wasm")]
           {
             let handle = tokio::runtime::Handle::current();
@@ -182,11 +192,7 @@ impl HmrModuleLoader {
   pub async fn fetch_changed_files(
     mut self,
     changed_files: Vec<String>,
-  ) -> anyhow::Result<BuildResult<HmrModuleLoaderOutput>> {
-    if self.options.input.is_empty() {
-      return Err(anyhow::format_err!("You must supply options.input to rolldown"));
-    }
-
+  ) -> BuildResult<HmrModuleLoaderOutput> {
     let changed_modules: Vec<ModuleIdx> =
       changed_files.iter().filter_map(|m| self.visited.get(m.as_str())).copied().collect();
     let mut diff_modules: Vec<ModuleIdx> = vec![];
@@ -207,7 +213,10 @@ impl HmrModuleLoader {
             is_external: false,
             package_json: None,
             side_effects: None,
+            is_external_without_side_effects: false,
           },
+          None,
+          false,
           None,
         );
         #[cfg(target_family = "wasm")]
@@ -230,7 +239,7 @@ impl HmrModuleLoader {
         break;
       };
       match msg {
-        Msg::NormalModuleDone(task_result) => {
+        ModuleLoaderMsg::NormalModuleDone(task_result) => {
           let NormalModuleTaskResult {
             module_idx,
             resolved_deps,
@@ -250,15 +259,20 @@ impl HmrModuleLoader {
                 let owner = ModuleTaskOwner::new(
                   ecma_module.source.clone(),
                   ecma_module.stable_id.as_str().into(),
-                  Span::new(raw_rec.module_request_start, raw_rec.module_request_end()),
+                  raw_rec.span,
                 );
-                let id = self.try_spawn_new_task(info, Some(owner));
+                let id = self.try_spawn_new_task(
+                  info,
+                  Some(owner),
+                  false,
+                  raw_rec.asserted_module_type.clone(),
+                );
                 raw_rec.into_resolved(id)
               })
               .collect::<IndexVec<ImportRecordIdx, _>>();
 
           module.set_import_records(import_records);
-          if let Some((ast, ast_symbol)) = ecma_related {
+          if let Some(EcmaRelated { ast, symbols, .. }) = ecma_related {
             if module_idx < self.intermediate_normal_modules.modules.len() {
               if let Some(ast_idx) = self.intermediate_normal_modules.modules[module_idx]
                 .as_ref()
@@ -272,15 +286,18 @@ impl HmrModuleLoader {
               let ast_idx = self.intermediate_normal_modules.index_ecma_ast.push((ast, module_idx));
               module.set_ecma_ast_idx(ast_idx);
             }
-            self.symbol_ref_db.store_local_db(module_idx, ast_symbol);
+            self.symbol_ref_db.store_local_db(module_idx, symbols);
           }
           self.intermediate_normal_modules.modules[module_idx] = Some(module);
           diff_modules.push(module_idx);
         }
-        Msg::RuntimeNormalModuleDone(_) => {
+        ModuleLoaderMsg::FetchModule(resolve_id) => {
+          self.try_spawn_new_task(resolve_id, None, false, None);
+        }
+        ModuleLoaderMsg::RuntimeNormalModuleDone(_) => {
           unreachable!("Runtime module should not be done at hmr module loader");
         }
-        Msg::BuildErrors(e) => {
+        ModuleLoaderMsg::BuildErrors(e) => {
           errors.extend(e);
         }
       }
@@ -288,13 +305,13 @@ impl HmrModuleLoader {
     }
 
     if !errors.is_empty() {
-      return Ok(Err(errors.into()));
+      return Err(errors.into());
     }
 
     let modules: IndexVec<ModuleIdx, Module> =
       self.intermediate_normal_modules.modules.into_iter().flatten().collect();
 
-    Ok(Ok(HmrModuleLoaderOutput {
+    Ok(HmrModuleLoaderOutput {
       module_table: ModuleTable { modules },
       module_id_to_modules: self.visited,
       symbol_ref_db: self.symbol_ref_db,
@@ -302,6 +319,6 @@ impl HmrModuleLoader {
       warnings: all_warnings,
       changed_modules,
       diff_modules,
-    }))
+    })
   }
 }

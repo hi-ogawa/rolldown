@@ -182,14 +182,13 @@ impl Bundler {
   pub async fn hmr_rebuild_impl(&self, changed_files: Vec<String>) -> napi::Result<BindingOutputs> {
     let mut bundler_core = self.inner.lock().await;
 
-    let output = bundler_core.hmr_rebuild(changed_files).await?;
+    let bundle_output = match bundler_core.hmr_rebuild(changed_files).await {
+      Ok(output) => output,
+      Err(errs) => return Ok(self.handle_errors(errs.into_vec())),
+    };
 
-    if !output.errors.is_empty() {
-      return Err(self.handle_errors(output.errors));
-    }
-
-    self.handle_warnings(output.warnings).await;
-    Ok(output.assets.into())
+    self.handle_warnings(bundle_output.warnings).await;
+    Ok(bundle_output.assets.into())
   }
 
   #[allow(clippy::significant_drop_tightening)]

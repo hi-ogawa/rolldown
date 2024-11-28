@@ -7,7 +7,6 @@ use rolldown_common::{
   dynamic_import_usage::DynamicImportExportsUsage, EntryPoint, ImportKind, ModuleIdx, ModuleTable,
   ResolvedId, RuntimeModuleBrief, SymbolRefDb,
 };
-use rolldown_common::{EntryPoint, ImportKind, ModuleIdx, ModuleTable, ResolvedId, SymbolRefDb};
 use rolldown_error::{BuildDiagnostic, BuildResult};
 use rolldown_fs::OsFileSystem;
 use rolldown_plugin::SharedPluginDriver;

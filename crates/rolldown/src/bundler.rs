@@ -21,7 +21,6 @@ use rolldown_common::{
   ModuleIdx, ModuleTable, NormalizedBundlerOptions, SharedFileEmitter, SymbolRefDb,
 };
 
-use rolldown_common::{NormalizedBundlerOptions, SharedFileEmitter};
 use rolldown_error::{BuildDiagnostic, BuildResult};
 use rolldown_fs::{FileSystem, OsFileSystem};
 use rolldown_plugin::{
@@ -61,8 +60,6 @@ impl Bundler {
 impl Bundler {
   #[tracing::instrument(level = "debug", skip_all)]
   pub async fn write(&mut self) -> BuildResult<BundleOutput> {
-    let dir = self.options.cwd.join(&self.options.dir);
-
     let mut output = self.bundle_up(/* is_write */ true).await?;
 
     self.write_file_to_disk(&output)?;
@@ -130,7 +127,7 @@ impl Bundler {
   }
 
   #[allow(clippy::unused_async)]
-  pub async fn hmr_rebuild(&mut self, changed_files: Vec<String>) -> Result<BundleOutput> {
+  pub async fn hmr_rebuild(&mut self, changed_files: Vec<String>) -> BuildResult<BundleOutput> {
     let hmr_module_loader = HmrModuleLoader::new(
       Arc::clone(&self.options),
       Arc::clone(&self.plugin_driver),
@@ -142,18 +139,7 @@ impl Bundler {
       std::mem::take(&mut self.pervious_symbols),
     )?;
 
-    let mut hmr_module_loader_output =
-      match hmr_module_loader.fetch_changed_files(changed_files).await? {
-        Ok(output) => output,
-        Err(errors) => {
-          return Ok(BundleOutput {
-            warnings: vec![],
-            errors: errors.into_vec(),
-            assets: vec![],
-            watch_files: vec![],
-          });
-        }
-      };
+    let mut hmr_module_loader_output = hmr_module_loader.fetch_changed_files(changed_files).await?;
 
     let output = render_hmr_chunk(&self.options, &mut hmr_module_loader_output);
 

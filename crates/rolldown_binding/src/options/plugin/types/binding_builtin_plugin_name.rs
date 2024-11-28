@@ -28,6 +28,8 @@ pub enum BindingBuiltinPluginName {
   BuildImportAnalysis,
   #[napi(value = "builtin:replace")]
   Replace,
+  #[napi(value = "builtin:react-plugin")]
+  ReactPlugin,
   #[napi(value = "builtin:vite-resolve")]
   ViteResolve,
 }

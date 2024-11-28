@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use oxc::index::IndexVec;
+use oxc_index::IndexVec;
 use rolldown_common::{FileEmitter, ModuleTable, SymbolRefDb};
 use rolldown_fs::OsFileSystem;
 use rolldown_plugin::{PluginDriver, __inner::SharedPluginable};
