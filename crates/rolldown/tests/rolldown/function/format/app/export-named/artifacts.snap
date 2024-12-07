@@ -1,5 +1,6 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
@@ -7,8 +8,8 @@ source: crates/rolldown_testing/src/integration_test.rs
 
 ```js
 //#region main.js
-__toCommonJS(exports);
-__export(exports, {
+__rolldown_runtime.__toCommonJS(exports);
+__rolldown_runtime.__export(exports, {
 	foo: () => foo,
 	bar: () => foo,
 	["some exports"]: () => foo,

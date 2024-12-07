@@ -8,14 +8,14 @@ snapshot_kind: text
 
 ```js
 //#region main.js
-__toCommonJS(exports);
-__export(exports, {
+__rolldown_runtime.__toCommonJS(exports);
+__rolldown_runtime.__export(exports, {
 	foo: () => external.foo,
 	["bar2"]: () => external["bar"],
 	["abc"]: () => external["abc"],
 	["ddd2"]: () => external.ddd
 });
-var external = require("external");
+var external = __rolldown_runtime.require("external");
 
 //#endregion
 ```

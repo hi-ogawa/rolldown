@@ -12,7 +12,7 @@ use oxc::{
 };
 use rolldown_common::{EcmaModuleAstUsage, Interop};
 
-use crate::allocator_helpers::take_in::TakeIn;
+use crate::{allocator_helpers::take_in::TakeIn, ExpressionExt};
 
 type PassedStr<'a> = &'a str;
 
@@ -763,6 +763,22 @@ impl<'ast> AstSnippet<'ast> {
         self.builder.expression_numeric_literal(SPAN, 1.0, "1", NumberBase::Decimal),
       ),
     }
+  }
+
+  pub fn to_app_runtime_call(&self, mut expr: Expression<'ast>) -> Expression<'ast> {
+    let Some(call_expr) = expr.as_call_expression_mut() else {
+      return expr;
+    };
+    let Some(callee_id) = call_expr.callee.as_identifier() else {
+      return expr;
+    };
+    call_expr.callee = ast::Expression::from(self.builder.member_expression_static(
+      SPAN,
+      self.builder.expression_identifier_reference(SPAN, "__rolldown_runtime"),
+      self.builder.identifier_name(SPAN, callee_id.name.as_str()),
+      false,
+    ));
+    expr
   }
 
   // If `node_mode` is true, using `__toESM(expr, 1)`

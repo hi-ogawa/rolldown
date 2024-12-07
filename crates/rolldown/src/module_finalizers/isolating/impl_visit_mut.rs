@@ -41,17 +41,21 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
 
     // Add __esModule flag for esm module
     if self.ctx.module.exports_kind.is_esm() {
-      program.body.push(self.snippet.builder.statement_expression(
-        SPAN,
-        self.snippet.call_expr_with_arg_expr("__toCommonJS", "exports"),
-      ));
+      program.body.push(
+        self.snippet.builder.statement_expression(
+          SPAN,
+          self
+            .snippet
+            .to_app_runtime_call(self.snippet.call_expr_with_arg_expr("__toCommonJS", "exports")),
+        ),
+      );
     }
 
     // Generate export statements, using `Object.defineProperty`
     if !self.generated_exports.is_empty() {
       program.body.push(self.snippet.builder.statement_expression(
         SPAN,
-        self.snippet.alloc_call_expr_with_2arg_expr_expr(
+        self.snippet.to_app_runtime_call(self.snippet.alloc_call_expr_with_2arg_expr_expr(
           "__export",
           self.snippet.id_ref_expr("exports", SPAN),
           Expression::ObjectExpression(self.snippet.builder.alloc_object_expression(
@@ -59,7 +63,7 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
             self.snippet.builder.vec_from_iter(self.generated_exports.drain(..)),
             None,
           )),
-        ),
+        )),
       ));
     }
 
@@ -327,7 +331,11 @@ impl<'ast> IsolatingModuleFinalizer<'_, 'ast> {
       None => {
         self.generated_imports.push(self.snippet.builder.statement_expression(
           SPAN,
-          self.snippet.call_expr_with_2arg_expr("__reExport", "exports", &namespace_object_ref),
+          self.snippet.to_app_runtime_call(self.snippet.call_expr_with_2arg_expr(
+            "__reExport",
+            "exports",
+            &namespace_object_ref,
+          )),
         ));
       }
     }
@@ -346,11 +354,16 @@ impl<'ast> IsolatingModuleFinalizer<'_, 'ast> {
 
     self.generated_imports_set.insert(namespace_object_ref.clone());
 
-    let require_call = self.snippet.require_call_expr(module_stable_id.as_str());
+    let require_call =
+      self.snippet.to_app_runtime_call(self.snippet.require_call_expr(module_stable_id.as_str()));
 
     self.generated_imports.push(self.snippet.variable_declarator_require_call_stmt(
       namespace_object_ref,
-      self.snippet.to_esm_call_with_interop("__toESM", require_call, interop),
+      self.snippet.to_app_runtime_call(self.snippet.to_esm_call_with_interop(
+        "__toESM",
+        require_call,
+        interop,
+      )),
       span,
     ));
   }

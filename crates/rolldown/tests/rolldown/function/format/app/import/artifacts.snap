@@ -1,5 +1,6 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
@@ -16,10 +17,10 @@ module.exports = 1;
 
 //#endregion
 //#region main.js
-__toCommonJS(exports);
-var external = require("external");
-var cjs_exports = __toESM(require("cjs.js"));
-var commonjs_exports = __toESM(require("commonjs.mjs"), 1);
+__rolldown_runtime.__toCommonJS(exports);
+var external = __rolldown_runtime.require("external");
+var cjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("cjs.js"));
+var commonjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("commonjs.mjs"), 1);
 console.log(external.external, cjs_exports.foo, cjs_exports.bar);
 
 //#endregion
