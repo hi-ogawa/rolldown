@@ -3,7 +3,7 @@ use oxc::ast::visit::walk_mut;
 use oxc::ast::VisitMut;
 use oxc::span::{CompactStr, Span, SPAN};
 use rolldown_common::{Interop, Module};
-use rolldown_ecmascript_utils::{AstSnippet, ExpressionExt, TakeIn};
+use rolldown_ecmascript_utils::{AstSnippet, TakeIn};
 use rolldown_utils::ecmascript::legitimize_identifier_name;
 
 use crate::utils::call_expression_ext::CallExpressionExt;
@@ -43,10 +43,7 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
     if self.ctx.module.exports_kind.is_esm() {
       program.body.push(self.snippet.builder.statement_expression(
         SPAN,
-        to_app_runtime_call(
-          &self.snippet,
-          self.snippet.call_expr_with_arg_expr("__toCommonJS", "exports"),
-        ),
+        self.snippet.call_expr_with_arg_expr("__toCommonJS", "exports"),
       ));
     }
 
@@ -54,17 +51,14 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
     if !self.generated_exports.is_empty() {
       program.body.push(self.snippet.builder.statement_expression(
         SPAN,
-        to_app_runtime_call(
-          &self.snippet,
-          self.snippet.alloc_call_expr_with_2arg_expr_expr(
-            "__export",
-            self.snippet.id_ref_expr("exports", SPAN),
-            Expression::ObjectExpression(self.snippet.builder.alloc_object_expression(
-              SPAN,
-              self.snippet.builder.vec_from_iter(self.generated_exports.drain(..)),
-              None,
-            )),
-          ),
+        self.snippet.alloc_call_expr_with_2arg_expr_expr(
+          "__export",
+          self.snippet.id_ref_expr("exports", SPAN),
+          Expression::ObjectExpression(self.snippet.builder.alloc_object_expression(
+            SPAN,
+            self.snippet.builder.vec_from_iter(self.generated_exports.drain(..)),
+            None,
+          )),
         ),
       ));
     }
@@ -73,6 +67,9 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
     program.body.extend(self.generated_imports.drain(..));
 
     program.body.extend(stmts);
+
+    // quick and dirty 2nd pass to rewrite globals into __rolldown_runtime.xxx
+    walk_mut::walk_program(&mut AppRuntimeRewriter { snippet: &self.snippet }, program)
   }
 
   fn visit_expression(&mut self, expr: &mut Expression<'ast>) {
@@ -105,19 +102,6 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
           }
         }
       };
-    }
-    if let Expression::Identifier(ident) = expr {
-      if (ident.name == "module" || ident.name == "exports" || ident.name == "require")
-        && self.scope.is_unresolved(ident.reference_id())
-      {
-        *expr =
-          Expression::StaticMemberExpression(self.snippet.builder.alloc_static_member_expression(
-            ident.span,
-            self.snippet.id_ref_expr("__rolldown_runtime", SPAN),
-            self.snippet.builder.identifier_name(ident.span, &ident.name),
-            false,
-          ));
-      }
     }
     walk_mut::walk_expression(self, expr);
   }
@@ -346,10 +330,7 @@ impl<'ast> IsolatingModuleFinalizer<'_, 'ast> {
       None => {
         self.generated_imports.push(self.snippet.builder.statement_expression(
           SPAN,
-          to_app_runtime_call(
-            &self.snippet,
-            self.snippet.call_expr_with_2arg_expr("__reExport", "exports", &namespace_object_ref),
-          ),
+          self.snippet.call_expr_with_2arg_expr("__reExport", "exports", &namespace_object_ref),
         ));
       }
     }
@@ -368,19 +349,11 @@ impl<'ast> IsolatingModuleFinalizer<'_, 'ast> {
 
     self.generated_imports_set.insert(namespace_object_ref.clone());
 
+    let require_call = self.snippet.require_call_expr(module_stable_id.as_str());
+
     self.generated_imports.push(self.snippet.variable_declarator_require_call_stmt(
       namespace_object_ref,
-      to_app_runtime_call(
-        &self.snippet,
-        self.snippet.to_esm_call_with_interop(
-          "__toESM",
-          to_app_runtime_call(
-            &self.snippet,
-            self.snippet.require_call_expr(module_stable_id.as_str()),
-          ),
-          interop,
-        ),
-      ),
+      self.snippet.to_esm_call_with_interop("__toESM", require_call, interop),
       span,
     ));
   }
@@ -405,33 +378,30 @@ impl<'ast> IsolatingModuleFinalizer<'_, 'ast> {
   }
 }
 
-fn to_app_runtime_call<'ast>(
-  snippet: &AstSnippet<'ast>,
-  mut expr: Expression<'ast>,
-) -> Expression<'ast> {
-  let Some(call_expr) = expr.as_call_expression_mut() else {
-    return expr;
-  };
-  let Some(callee_id) = call_expr.callee.as_identifier() else {
-    return expr;
-  };
-  call_expr.callee = ast::Expression::from(snippet.builder.member_expression_static(
-    SPAN,
-    snippet.builder.expression_identifier_reference(SPAN, "__rolldown_runtime"),
-    snippet.builder.identifier_name(SPAN, callee_id.name.as_str()),
-    false,
-  ));
-  for arg in call_expr.arguments.iter_mut() {
-    let Some(expr) = arg.as_expression_mut() else { continue };
-    let Some(arg_id) = expr.as_identifier() else { continue };
-    if arg_id.name == "exports" {
-      *expr = ast::Expression::from(snippet.builder.member_expression_static(
-        SPAN,
-        snippet.builder.expression_identifier_reference(SPAN, "__rolldown_runtime"),
-        snippet.builder.identifier_name(SPAN, arg_id.name.as_str()),
-        false,
-      ));
+struct AppRuntimeRewriter<'me, 'ast> {
+  pub snippet: &'me AstSnippet<'ast>,
+}
+
+impl<'ast> VisitMut<'ast> for AppRuntimeRewriter<'_, 'ast> {
+  fn visit_expression(&mut self, expr: &mut Expression<'ast>) {
+    if let Expression::Identifier(ident) = expr {
+      if ident.name == "module"
+        || ident.name == "exports"
+        || ident.name == "require"
+        || ident.name == "__toESM"
+        || ident.name == "__toCommonJS"
+        || ident.name == "__export"
+        || ident.name == "__reExport"
+      {
+        *expr =
+          Expression::StaticMemberExpression(self.snippet.builder.alloc_static_member_expression(
+            ident.span,
+            self.snippet.id_ref_expr("__rolldown_runtime", SPAN),
+            self.snippet.builder.identifier_name(ident.span, &ident.name),
+            false,
+          ));
+      }
     }
+    walk_mut::walk_expression(self, expr);
   }
-  expr
 }
