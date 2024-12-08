@@ -30,7 +30,7 @@ __rolldown_runtime.module.exports = 1;
 
 "main.js": function(__rolldown_runtime) {
 //#region main.js
-__rolldown_runtime.__toCommonJS(exports);
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
 var external = __rolldown_runtime.require("external");
 var cjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("cjs.js"));
 var commonjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("commonjs.mjs"), 1);

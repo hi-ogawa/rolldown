@@ -12,8 +12,8 @@ __rolldown_runtime.modules({
 
 "square.js": function(__rolldown_runtime) {
 //#region square.js
-__rolldown_runtime.__toCommonJS(exports);
-__rolldown_runtime.__export(exports, { default: () => square });
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => square });
 function square(x) {
 	return x * x;
 };
@@ -23,8 +23,8 @@ function square(x) {
 
 "cube.js": function(__rolldown_runtime) {
 //#region cube.js
-__rolldown_runtime.__toCommonJS(exports);
-__rolldown_runtime.__export(exports, { default: () => cube });
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => cube });
 var square_exports = __rolldown_runtime.require("square.js");
 function cube(x) {
 	return square_exports.default(x) * x;
@@ -44,8 +44,8 @@ __rolldown_runtime.modules({
 
 "hyper-cube.js": function(__rolldown_runtime) {
 //#region hyper-cube.js
-__rolldown_runtime.__toCommonJS(exports);
-__rolldown_runtime.__export(exports, { default: () => hyperCube });
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => hyperCube });
 var cube_exports = __rolldown_runtime.require("cube.js");
 function hyperCube(x) {
 	return cube_exports.default(x) * x;
@@ -56,7 +56,7 @@ function hyperCube(x) {
 
 "main.js": function(__rolldown_runtime) {
 //#region main.js
-__rolldown_runtime.__toCommonJS(exports);
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
 var hyper_cube_exports = __rolldown_runtime.require("hyper-cube.js");
 console.log(hyper_cube_exports.default(5));
 
@@ -74,7 +74,7 @@ __rolldown_runtime.modules({
 
 "other-entry.js": function(__rolldown_runtime) {
 //#region other-entry.js
-__rolldown_runtime.__toCommonJS(exports);
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
 var cube_exports = __rolldown_runtime.require("cube.js");
 console.log(cube_exports.default(5));
 

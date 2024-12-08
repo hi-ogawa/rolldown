@@ -12,8 +12,8 @@ __rolldown_runtime.modules({
 
 "foo.js": function(__rolldown_runtime) {
 //#region foo.js
-__rolldown_runtime.__toCommonJS(exports);
-__rolldown_runtime.__export(exports, { default: () => foo_default });
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => foo_default });
 class {};
 
 //#endregion
@@ -21,8 +21,8 @@ class {};
 
 "main.js": function(__rolldown_runtime) {
 //#region main.js
-__rolldown_runtime.__toCommonJS(exports);
-__rolldown_runtime.__export(exports, { default: () => A });
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => A });
 var foo_exports = __rolldown_runtime.require("foo.js");
 class A {};
 
