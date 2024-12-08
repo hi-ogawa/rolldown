@@ -3,7 +3,7 @@ use oxc::ast::visit::walk_mut;
 use oxc::ast::VisitMut;
 use oxc::span::{CompactStr, Span, SPAN};
 use rolldown_common::{Interop, Module};
-use rolldown_ecmascript_utils::TakeIn;
+use rolldown_ecmascript_utils::{AstSnippet, TakeIn};
 use rolldown_utils::ecmascript::legitimize_identifier_name;
 
 use crate::utils::call_expression_ext::CallExpressionExt;
@@ -67,6 +67,9 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
     program.body.extend(self.generated_imports.drain(..));
 
     program.body.extend(stmts);
+
+    // quick and dirty 2nd pass to rewrite globals into __rolldown_runtime.xxx
+    walk_mut::walk_program(&mut AppRuntimeRewriter { snippet: &self.snippet }, program);
   }
 
   fn visit_expression(&mut self, expr: &mut Expression<'ast>) {
@@ -372,5 +375,33 @@ impl<'ast> IsolatingModuleFinalizer<'_, 'ast> {
     let rec_id = self.ctx.module.imports[&span];
     let rec = &self.ctx.module.import_records[rec_id];
     &self.ctx.modules[rec.resolved_module]
+  }
+}
+
+struct AppRuntimeRewriter<'me, 'ast> {
+  pub snippet: &'me AstSnippet<'ast>,
+}
+
+impl<'ast> VisitMut<'ast> for AppRuntimeRewriter<'_, 'ast> {
+  fn visit_expression(&mut self, expr: &mut Expression<'ast>) {
+    if let Expression::Identifier(ident) = expr {
+      if ident.name == "module"
+        || ident.name == "exports"
+        || ident.name == "require"
+        || ident.name == "__toESM"
+        || ident.name == "__toCommonJS"
+        || ident.name == "__export"
+        || ident.name == "__reExport"
+      {
+        *expr =
+          Expression::StaticMemberExpression(self.snippet.builder.alloc_static_member_expression(
+            ident.span,
+            self.snippet.id_ref_expr("__rolldown_runtime", SPAN),
+            self.snippet.builder.identifier_name(ident.span, &ident.name),
+            false,
+          ));
+      }
+    }
+    walk_mut::walk_expression(self, expr);
   }
 }

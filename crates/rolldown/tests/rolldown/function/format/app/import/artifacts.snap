@@ -1,26 +1,43 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
 ## main.js
 
 ```js
+var __rolldown_modules = {
 
+"rolldown:runtime": function(__rolldown_runtime) {
+
+},
+
+"cjs.js": function(__rolldown_runtime) {
 //#region cjs.js
-module.exports = 1;
+__rolldown_runtime.module.exports = 1;
 
 //#endregion
+},
+
+"commonjs.mjs": function(__rolldown_runtime) {
 //#region commonjs.mjs
-module.exports = 1;
+__rolldown_runtime.module.exports = 1;
 
 //#endregion
+},
+
+"main.js": function(__rolldown_runtime) {
 //#region main.js
-__toCommonJS(exports);
-var external = require("external");
-var cjs_exports = __toESM(require("cjs.js"));
-var commonjs_exports = __toESM(require("commonjs.mjs"), 1);
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+var external = __rolldown_runtime.require("external");
+var cjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("cjs.js"));
+var commonjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("commonjs.mjs"), 1);
 console.log(external.external, cjs_exports.foo, cjs_exports.bar);
 
 //#endregion
+},
+
+};
+
 ```

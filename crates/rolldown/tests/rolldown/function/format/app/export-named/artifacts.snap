@@ -1,14 +1,18 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
 ## main.js
 
 ```js
+var __rolldown_modules = {
+
+"main.js": function(__rolldown_runtime) {
 //#region main.js
-__toCommonJS(exports);
-__export(exports, {
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, {
 	foo: () => foo,
 	bar: () => foo,
 	["some exports"]: () => foo,
@@ -22,4 +26,8 @@ class A {};
 const abc = 1;
 
 //#endregion
+},
+
+};
+
 ```

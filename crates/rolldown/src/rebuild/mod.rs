@@ -70,11 +70,18 @@ impl RebuildManager {
     if !changed_modules.is_empty() {
       // create hmr chunk
       let mut source_joiner = SourceJoiner::default();
-      for (_, module) in &changed_modules {
+      source_joiner.append_source("\nvar __rolldown_modules = {\n");
+      for (module_id, module) in &changed_modules {
+        source_joiner.append_source(format!(
+          "{}: function(__rolldown_runtime) {{",
+          serde_json::to_string(&module_id.stabilize(&options.cwd)).unwrap()
+        ));
         for source in module.iter_sources() {
           source_joiner.append_source(source);
         }
+        source_joiner.append_source("},\n");
       }
+      source_joiner.append_source("};\n");
       let (content, mut map) = source_joiner.join();
       let file_dir = options.cwd.as_path().join(&options.dir);
       if let Some(map) = map.as_mut() {
