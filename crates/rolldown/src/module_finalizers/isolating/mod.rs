@@ -7,12 +7,15 @@ use rolldown_common::{AstScopes, IndexModules, NormalModule, SymbolRefDb};
 use rolldown_ecmascript_utils::AstSnippet;
 use rustc_hash::FxHashSet;
 
+use crate::chunk_graph::ChunkGraph;
+
 mod impl_visit_mut;
 
 pub struct IsolatingModuleFinalizerContext<'me> {
   pub module: &'me NormalModule,
   pub modules: &'me IndexModules,
   pub symbol_db: &'me SymbolRefDb,
+  pub chunk_graph: &'me ChunkGraph,
 }
 
 pub struct IsolatingModuleFinalizer<'me, 'ast> {

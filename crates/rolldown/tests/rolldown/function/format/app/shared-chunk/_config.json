@@ -1,0 +1,16 @@
+{
+  "config": {
+    "format": "app",
+    "input": [
+      {
+        "import": "./main1.js",
+        "name": "main1"
+      },
+      {
+        "import": "./main2.js",
+        "name": "main2"
+      }
+    ]
+  },
+  "expectExecuted": false
+}

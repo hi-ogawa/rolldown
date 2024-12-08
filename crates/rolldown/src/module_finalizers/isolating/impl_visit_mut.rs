@@ -68,7 +68,7 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
 
     program.body.extend(stmts);
 
-    // quick and dirty 2nd pass to rewrite globals into __rolldown_runtime.xxx
+    // quick and dirty extra pass to rewrite globals e.g. require -> runtime.require
     walk_mut::walk_program(&mut AppRuntimeRewriter { snippet: &self.snippet }, program);
   }
 
@@ -102,6 +102,29 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
           }
         }
       };
+    }
+    if let Expression::ImportExpression(import_expr) = expr {
+      // input:  import("dep.js")
+      // output: runtime.ensureChunk("dep-chunk").then(() => runtime.require("dep.js"))
+      if import_expr.source.is_string_literal() && import_expr.arguments.len() == 0 {
+        // copied from ScopeHoistingFinalizer::visit_import_expression
+        let rec_id = self.ctx.module.imports[&import_expr.span];
+        let rec = &self.ctx.module.import_records[rec_id];
+        let importee_id = rec.resolved_module;
+        match &self.ctx.modules[importee_id] {
+          Module::Normal(_importee) => {
+            let importee_chunk_id = self.ctx.chunk_graph.entry_module_to_entry_chunk[&importee_id];
+            let importee_chunk = &self.ctx.chunk_graph.chunk_table[importee_chunk_id];
+            let import_path = importee_chunk.name.as_ref().unwrap(); // TODO: unique chunk name
+            *expr = Expression::StringLiteral(self.snippet.builder.alloc_string_literal(
+              SPAN,
+              format!("TODO-ensureChunk{import_path}"),
+              None,
+            ));
+          }
+          Module::External(_) => {}
+        }
+      }
     }
     walk_mut::walk_expression(self, expr);
   }
