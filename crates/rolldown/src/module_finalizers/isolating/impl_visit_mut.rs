@@ -69,7 +69,7 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
     program.body.extend(stmts);
 
     // quick and dirty 2nd pass to rewrite globals into __rolldown_runtime.xxx
-    walk_mut::walk_program(&mut AppRuntimeRewriter { snippet: &self.snippet }, program)
+    walk_mut::walk_program(&mut AppRuntimeRewriter { snippet: &self.snippet }, program);
   }
 
   fn visit_expression(&mut self, expr: &mut Expression<'ast>) {
