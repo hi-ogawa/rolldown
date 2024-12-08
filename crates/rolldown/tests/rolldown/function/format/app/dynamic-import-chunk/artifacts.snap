@@ -30,7 +30,7 @@ var __rolldown_modules = {
 //#region main.js
 __rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
 __rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => main_default });
-var main_default = () => import("./dep.js");
+var main_default = () => "TODO-ensureChunkdep";
 
 //#endregion
 },

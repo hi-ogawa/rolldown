@@ -4127,7 +4127,7 @@ snapshot_kind: text
 
 # tests/rolldown/function/format/app/dynamic-import-chunk
 
-- main-!~{000}~.js => main-CLbdS1rw.js
+- main-!~{000}~.js => main-DbkMdzjC.js
 - dep-!~{001}~.js => dep-CpkzZlrt.js
 
 # tests/rolldown/function/format/app/export-all
