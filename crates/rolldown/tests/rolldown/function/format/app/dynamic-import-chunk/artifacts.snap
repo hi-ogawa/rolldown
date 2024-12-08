@@ -1,0 +1,40 @@
+---
+source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
+---
+# Assets
+
+## dep.js
+
+```js
+var __rolldown_modules = {
+
+"dep.js": function(__rolldown_runtime) {
+//#region dep.js
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => dep_default });
+var dep_default = "[dep ok]";
+
+//#endregion
+},
+
+};
+
+```
+## main.js
+
+```js
+var __rolldown_modules = {
+
+"main.js": function(__rolldown_runtime) {
+//#region main.js
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => main_default });
+var main_default = () => import("./dep.js");
+
+//#endregion
+},
+
+};
+
+```

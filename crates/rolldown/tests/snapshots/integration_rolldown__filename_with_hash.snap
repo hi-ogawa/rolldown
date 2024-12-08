@@ -4125,6 +4125,11 @@ snapshot_kind: text
 - out.js => out.js
 - out.css
 
+# tests/rolldown/function/format/app/dynamic-import-chunk
+
+- main-!~{000}~.js => main-CLbdS1rw.js
+- dep-!~{001}~.js => dep-CpkzZlrt.js
+
 # tests/rolldown/function/format/app/export-all
 
 - main-!~{000}~.js => main-BdghrDco.js
@@ -4162,6 +4167,12 @@ snapshot_kind: text
 # tests/rolldown/function/format/app/require
 
 - main-!~{000}~.js => main-C1Zl5Znc.js
+
+# tests/rolldown/function/format/app/shared-chunk
+
+- main1-!~{000}~.js => main1-R3nOeIoa.js
+- main2-!~{001}~.js => main2-BbKbhREb.js
+- dep-!~{002}~.js => dep-Bs9a6pBX.js
 
 # tests/rolldown/function/format/cjs/conflict_exports_key
 
