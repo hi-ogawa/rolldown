@@ -3,7 +3,7 @@ use rolldown_sourcemap::SourceJoiner;
 use crate::{ecmascript::ecma_generator::RenderedModuleSources, types::generator::GenerateContext};
 
 pub fn render_app<'code>(
-  _ctx: &GenerateContext<'_>,
+  ctx: &GenerateContext<'_>,
   hashbang: Option<&'code str>,
   banner: Option<&'code str>,
   intro: Option<&'code str>,
@@ -25,12 +25,18 @@ pub fn render_app<'code>(
   }
 
   // chunk content
-  module_sources.iter().for_each(|(_, _, module_render_output)| {
+  module_sources.iter().for_each(|(_, module_id, module_render_output)| {
+    source_joiner.append_source(format!(
+      "__rolldown_runtime.define({}, function(__rolldown_runtime) {{",
+      // TODO: can we preserve \0 as js string?
+      serde_json::to_string(&module_id.stabilize(&ctx.options.cwd)).unwrap()
+    ));
     if let Some(emitted_sources) = module_render_output {
       for source in emitted_sources.as_ref() {
         source_joiner.append_source(source);
       }
     }
+    source_joiner.append_source("});\n");
   });
 
   if let Some(outro) = outro {

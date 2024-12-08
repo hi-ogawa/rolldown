@@ -2423,6 +2423,7 @@ dependencies = [
  "rolldown_utils",
  "rustc-hash",
  "sanitize-filename",
+ "serde_json",
  "string_wizard",
  "sugar_path",
  "testing_macros",

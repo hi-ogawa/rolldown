@@ -7,15 +7,25 @@ snapshot_kind: text
 ## main.js
 
 ```js
+__rolldown_runtime.define("rolldown:runtime", function(__rolldown_runtime) {
 
+});
+
+__rolldown_runtime.define("cjs.js", function(__rolldown_runtime) {
 //#region cjs.js
 module.exports = 1;
 
 //#endregion
+});
+
+__rolldown_runtime.define("commonjs.mjs", function(__rolldown_runtime) {
 //#region commonjs.mjs
 module.exports = 1;
 
 //#endregion
+});
+
+__rolldown_runtime.define("main.js", function(__rolldown_runtime) {
 //#region main.js
 __rolldown_runtime.__toCommonJS(exports);
 var external = __rolldown_runtime.require("external");
@@ -24,4 +34,6 @@ var commonjs_exports = __rolldown_runtime.__toESM(__rolldown_runtime.require("co
 console.log(external.external, cjs_exports.foo, cjs_exports.bar);
 
 //#endregion
+});
+
 ```

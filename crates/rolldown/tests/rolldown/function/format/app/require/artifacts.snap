@@ -1,18 +1,28 @@
 ---
 source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
 ---
 # Assets
 
 ## main.js
 
 ```js
+__rolldown_runtime.define("rolldown:runtime", function(__rolldown_runtime) {
 
+});
+
+__rolldown_runtime.define("foo.js", function(__rolldown_runtime) {
 //#region foo.js
 module.exports = 1;
 
 //#endregion
+});
+
+__rolldown_runtime.define("main.js", function(__rolldown_runtime) {
 //#region main.js
 require("foo.js");
 
 //#endregion
+});
+
 ```
