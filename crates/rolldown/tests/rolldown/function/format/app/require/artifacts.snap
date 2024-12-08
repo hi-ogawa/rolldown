@@ -27,6 +27,6 @@ __rolldown_runtime.require("foo.js");
 //#endregion
 },
 
-});
+};
 
 ```

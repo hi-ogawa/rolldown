@@ -19,6 +19,6 @@ __rolldown_runtime.__reExport(__rolldown_runtime.exports, external);
 //#endregion
 },
 
-});
+};
 
 ```

@@ -32,7 +32,7 @@ function cube(x) {
 //#endregion
 },
 
-});
+};
 
 ```
 ## main.js
@@ -61,7 +61,7 @@ console.log(hyper_cube_exports.default(5));
 //#endregion
 },
 
-});
+};
 
 ```
 ## other-entry.js
@@ -78,6 +78,6 @@ console.log(cube_exports.default(5));
 //#endregion
 },
 
-});
+};
 
 ```

@@ -38,6 +38,6 @@ console.log(external.external, cjs_exports.foo, cjs_exports.bar);
 //#endregion
 },
 
-});
+};
 
 ```

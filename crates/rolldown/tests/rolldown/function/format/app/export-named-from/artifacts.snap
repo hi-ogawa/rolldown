@@ -23,6 +23,6 @@ var external = __rolldown_runtime.require("external");
 //#endregion
 },
 
-});
+};
 
 ```
