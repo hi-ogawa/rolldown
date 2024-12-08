@@ -7,13 +7,18 @@ snapshot_kind: text
 ## main.js
 
 ```js
-__rolldown_runtime.define("main.js", function(__rolldown_runtime) {
+
+__rolldown_runtime.modules({
+
+"main.js": function(__rolldown_runtime) {
 //#region main.js
 __rolldown_runtime.__toCommonJS(exports);
 __rolldown_runtime.__export(exports, { default: () => main_default });
 var main_default = 1;
 
 //#endregion
+},
+
 });
 
 ```

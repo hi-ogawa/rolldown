@@ -37,11 +37,16 @@ console.log(dep);
 - hmr-update
 
 ```js
-__rolldown_runtime.define("dep.js", function(__rolldown_runtime) {
+
+__rolldown_runtime.modules({
+
+"dep.js": function(__rolldown_runtime) {
 //#region dep.js
 const dep = "[dep-edit]";
 
 //#endregion
+},
+
 });
 
 ```

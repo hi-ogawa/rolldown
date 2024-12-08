@@ -25,9 +25,10 @@ pub fn render_app<'code>(
   }
 
   // chunk content
+  source_joiner.append_source("\n__rolldown_runtime.modules({\n");
   module_sources.iter().for_each(|(_, module_id, module_render_output)| {
     source_joiner.append_source(format!(
-      "__rolldown_runtime.define({}, function(__rolldown_runtime) {{",
+      "{}: function(__rolldown_runtime) {{",
       // TODO: can we preserve \0 as js string?
       serde_json::to_string(&module_id.stabilize(&ctx.options.cwd)).unwrap()
     ));
@@ -36,8 +37,9 @@ pub fn render_app<'code>(
         source_joiner.append_source(source);
       }
     }
-    source_joiner.append_source("});\n");
+    source_joiner.append_source("},\n");
   });
+  source_joiner.append_source("});\n");
 
   if let Some(outro) = outro {
     source_joiner.append_source(outro);

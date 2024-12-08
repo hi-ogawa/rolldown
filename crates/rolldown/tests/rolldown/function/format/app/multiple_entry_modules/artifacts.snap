@@ -7,7 +7,10 @@ snapshot_kind: text
 ## cube.js
 
 ```js
-__rolldown_runtime.define("square.js", function(__rolldown_runtime) {
+
+__rolldown_runtime.modules({
+
+"square.js": function(__rolldown_runtime) {
 //#region square.js
 __rolldown_runtime.__toCommonJS(exports);
 __rolldown_runtime.__export(exports, { default: () => square });
@@ -16,9 +19,9 @@ function square(x) {
 };
 
 //#endregion
-});
+},
 
-__rolldown_runtime.define("cube.js", function(__rolldown_runtime) {
+"cube.js": function(__rolldown_runtime) {
 //#region cube.js
 __rolldown_runtime.__toCommonJS(exports);
 __rolldown_runtime.__export(exports, { default: () => cube });
@@ -28,13 +31,18 @@ function cube(x) {
 };
 
 //#endregion
+},
+
 });
 
 ```
 ## main.js
 
 ```js
-__rolldown_runtime.define("hyper-cube.js", function(__rolldown_runtime) {
+
+__rolldown_runtime.modules({
+
+"hyper-cube.js": function(__rolldown_runtime) {
 //#region hyper-cube.js
 __rolldown_runtime.__toCommonJS(exports);
 __rolldown_runtime.__export(exports, { default: () => hyperCube });
@@ -44,28 +52,35 @@ function hyperCube(x) {
 };
 
 //#endregion
-});
+},
 
-__rolldown_runtime.define("main.js", function(__rolldown_runtime) {
+"main.js": function(__rolldown_runtime) {
 //#region main.js
 __rolldown_runtime.__toCommonJS(exports);
 var hyper_cube_exports = __rolldown_runtime.require("hyper-cube.js");
 console.log(hyper_cube_exports.default(5));
 
 //#endregion
+},
+
 });
 
 ```
 ## other-entry.js
 
 ```js
-__rolldown_runtime.define("other-entry.js", function(__rolldown_runtime) {
+
+__rolldown_runtime.modules({
+
+"other-entry.js": function(__rolldown_runtime) {
 //#region other-entry.js
 __rolldown_runtime.__toCommonJS(exports);
 var cube_exports = __rolldown_runtime.require("cube.js");
 console.log(cube_exports.default(5));
 
 //#endregion
+},
+
 });
 
 ```
