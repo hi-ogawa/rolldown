@@ -25,7 +25,7 @@ pub fn render_app<'code>(
   }
 
   // chunk content
-  source_joiner.append_source("\n__rolldown_runtime.modules({\n");
+  source_joiner.append_source("var __rolldown_modules = {\n");
   module_sources.iter().for_each(|(_, module_id, module_render_output)| {
     source_joiner.append_source(format!(
       "{}: function(__rolldown_runtime) {{",
@@ -39,7 +39,7 @@ pub fn render_app<'code>(
     }
     source_joiner.append_source("},\n");
   });
-  source_joiner.append_source("});\n");
+  source_joiner.append_source("};\n");
 
   if let Some(outro) = outro {
     source_joiner.append_source(outro);

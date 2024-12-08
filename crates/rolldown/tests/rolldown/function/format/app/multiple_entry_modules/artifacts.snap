@@ -7,8 +7,7 @@ snapshot_kind: text
 ## cube.js
 
 ```js
-
-__rolldown_runtime.modules({
+var __rolldown_modules = {
 
 "square.js": function(__rolldown_runtime) {
 //#region square.js
@@ -39,8 +38,7 @@ function cube(x) {
 ## main.js
 
 ```js
-
-__rolldown_runtime.modules({
+var __rolldown_modules = {
 
 "hyper-cube.js": function(__rolldown_runtime) {
 //#region hyper-cube.js
@@ -69,8 +67,7 @@ console.log(hyper_cube_exports.default(5));
 ## other-entry.js
 
 ```js
-
-__rolldown_runtime.modules({
+var __rolldown_modules = {
 
 "other-entry.js": function(__rolldown_runtime) {
 //#region other-entry.js

@@ -38,7 +38,7 @@ console.log(dep);
 
 ```js
 
-__rolldown_runtime.modules({
+var __rolldown_modules = {
 
 "dep.js": function(__rolldown_runtime) {
 //#region dep.js
