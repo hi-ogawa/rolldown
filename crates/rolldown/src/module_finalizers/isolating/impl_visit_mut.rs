@@ -104,6 +104,19 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
         }
       };
     }
+    if let Expression::Identifier(ident) = expr {
+      if (ident.name == "module" || ident.name == "exports" || ident.name == "require")
+        && self.scope.is_unresolved(ident.reference_id())
+      {
+        *expr =
+          Expression::StaticMemberExpression(self.snippet.builder.alloc_static_member_expression(
+            ident.span,
+            self.snippet.id_ref_expr("__rolldown_runtime", SPAN),
+            self.snippet.builder.identifier_name(ident.span, &ident.name),
+            false,
+          ));
+      }
+    }
     walk_mut::walk_expression(self, expr);
   }
 

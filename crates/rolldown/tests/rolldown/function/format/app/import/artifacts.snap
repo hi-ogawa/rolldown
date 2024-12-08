@@ -13,14 +13,14 @@ __rolldown_runtime.define("rolldown:runtime", function(__rolldown_runtime) {
 
 __rolldown_runtime.define("cjs.js", function(__rolldown_runtime) {
 //#region cjs.js
-module.exports = 1;
+__rolldown_runtime.module.exports = 1;
 
 //#endregion
 });
 
 __rolldown_runtime.define("commonjs.mjs", function(__rolldown_runtime) {
 //#region commonjs.mjs
-module.exports = 1;
+__rolldown_runtime.module.exports = 1;
 
 //#endregion
 });
