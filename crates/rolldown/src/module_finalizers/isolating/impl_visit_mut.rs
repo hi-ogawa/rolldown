@@ -1,6 +1,6 @@
 use oxc::ast::ast::{self, ExportDefaultDeclarationKind, Expression, Statement};
 use oxc::ast::visit::walk_mut;
-use oxc::ast::VisitMut;
+use oxc::ast::{VisitMut, NONE};
 use oxc::span::{CompactStr, Span, SPAN};
 use rolldown_common::{Interop, Module};
 use rolldown_ecmascript_utils::{AstSnippet, TakeIn};
@@ -104,23 +104,87 @@ impl<'ast> VisitMut<'ast> for IsolatingModuleFinalizer<'_, 'ast> {
       };
     }
     if let Expression::ImportExpression(import_expr) = expr {
-      // input:  import("dep.js")
-      // output: runtime.ensureChunk("dep-chunk").then(() => runtime.require("dep.js"))
+      // input:  import("importee")
+      // output: runtime.ensureChunk("importee-chunk").then(function() { return runtime.require("importee-id") })
       if import_expr.source.is_string_literal() && import_expr.arguments.len() == 0 {
-        // copied from ScopeHoistingFinalizer::visit_import_expression
-        let rec_id = self.ctx.module.imports[&import_expr.span];
-        let rec = &self.ctx.module.import_records[rec_id];
-        let importee_id = rec.resolved_module;
-        match &self.ctx.modules[importee_id] {
+        let importee_module = self.get_importee_module(import_expr.span);
+        match importee_module {
           Module::Normal(_importee) => {
-            let importee_chunk_id = self.ctx.chunk_graph.entry_module_to_entry_chunk[&importee_id];
+            let importee_chunk_id =
+              self.ctx.chunk_graph.entry_module_to_entry_chunk[&importee_module.idx()];
             let importee_chunk = &self.ctx.chunk_graph.chunk_table[importee_chunk_id];
-            let import_path = importee_chunk.name.as_ref().unwrap(); // TODO: unique chunk name
-            *expr = Expression::StringLiteral(self.snippet.builder.alloc_string_literal(
+            // TODO: unique chunk name?
+            let chunk_name = importee_chunk.name.as_ref().unwrap();
+            *expr = self.snippet.builder.expression_call(
               SPAN,
-              format!("TODO-ensureChunk{import_path}"),
-              None,
-            ));
+              Expression::StaticMemberExpression(
+                self.snippet.builder.alloc_static_member_expression(
+                  SPAN,
+                  self.snippet.builder.expression_call(
+                    SPAN,
+                    Expression::StaticMemberExpression(
+                      self.snippet.builder.alloc_static_member_expression(
+                        SPAN,
+                        self.snippet.id_ref_expr("__rolldown_runtime", SPAN),
+                        self.snippet.builder.identifier_name(SPAN, "ensureChunk"),
+                        false,
+                      ),
+                    ),
+                    NONE,
+                    self.snippet.builder.vec1(ast::Argument::from(
+                      self.snippet.string_literal_expr(chunk_name, SPAN),
+                    )),
+                    false,
+                  ),
+                  self.snippet.builder.identifier_name(SPAN, "then"),
+                  false,
+                ),
+              ),
+              NONE,
+              self.snippet.builder.vec1(ast::Argument::from(
+                self.snippet.builder.expression_function(
+                  ast::FunctionType::FunctionExpression,
+                  SPAN,
+                  None::<ast::BindingIdentifier>,
+                  false,
+                  false,
+                  false,
+                  NONE,
+                  NONE,
+                  self.snippet.builder.formal_parameters(
+                    SPAN,
+                    ast::FormalParameterKind::Signature,
+                    self.snippet.builder.vec(),
+                    NONE,
+                  ),
+                  NONE,
+                  Some(self.snippet.builder.function_body(
+                    SPAN,
+                    self.snippet.builder.vec(),
+                    self.snippet.builder.vec1(self.snippet.builder.statement_return(
+                      SPAN,
+                      Some(self.snippet.builder.expression_call(
+                        SPAN,
+                        Expression::StaticMemberExpression(
+                          self.snippet.builder.alloc_static_member_expression(
+                            SPAN,
+                            self.snippet.id_ref_expr("__rolldown_runtime", SPAN),
+                            self.snippet.builder.identifier_name(SPAN, "require"),
+                            false,
+                          ),
+                        ),
+                        NONE,
+                        self.snippet.builder.vec1(ast::Argument::from(
+                          self.snippet.string_literal_expr(importee_module.stable_id(), SPAN),
+                        )),
+                        false,
+                      )),
+                    )),
+                  )),
+                ),
+              )),
+              false,
+            );
           }
           Module::External(_) => {}
         }
