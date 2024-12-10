@@ -1,0 +1,59 @@
+---
+source: crates/rolldown_testing/src/integration_test.rs
+snapshot_kind: text
+---
+# Assets
+
+## dep.js
+
+```js
+var __rolldown_modules = {
+
+"dep.js": function(__rolldown_runtime) {
+//#region dep.js
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => dep_default });
+var dep_default = "[dep ok]";
+
+//#endregion
+},
+
+};
+
+```
+## main1.js
+
+```js
+var __rolldown_modules = {
+
+"main1.js": function(__rolldown_runtime) {
+//#region main1.js
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => main1_default });
+var dep_exports = __rolldown_runtime.require("dep.js");
+var main1_default = "main1: " + dep_exports.default;
+
+//#endregion
+},
+
+};
+
+```
+## main2.js
+
+```js
+var __rolldown_modules = {
+
+"main2.js": function(__rolldown_runtime) {
+//#region main2.js
+__rolldown_runtime.__toCommonJS(__rolldown_runtime.exports);
+__rolldown_runtime.__export(__rolldown_runtime.exports, { default: () => main2_default });
+var dep_exports = __rolldown_runtime.require("dep.js");
+var main2_default = "main2: " + dep_exports.default;
+
+//#endregion
+},
+
+};
+
+```

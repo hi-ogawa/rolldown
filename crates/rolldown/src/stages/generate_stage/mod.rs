@@ -130,6 +130,7 @@ impl<'a> GenerateStage<'a> {
                 module,
                 modules: &self.link_output.module_table.modules,
                 symbol_db: &self.link_output.symbol_db,
+                chunk_graph: &chunk_graph,
               },
               snippet: AstSnippet::new(alloc),
               generated_imports_set: FxHashSet::default(),
