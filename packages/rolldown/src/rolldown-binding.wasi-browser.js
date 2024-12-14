@@ -58,10 +58,10 @@ const {
 })
 
 function __napi_rs_initialize_modules(__napiInstance) {
-  __napiInstance.exports['__napi_register__SourceMap_struct_0']?.()
   __napiInstance.exports['__napi_register__OxcError_struct_0']?.()
   __napiInstance.exports['__napi_register__ErrorLabel_struct_1']?.()
   __napiInstance.exports['__napi_register__Severity_2']?.()
+  __napiInstance.exports['__napi_register__SourceMap_struct_0']?.()
   __napiInstance.exports['__napi_register__IsolatedDeclarationsResult_struct_0']?.()
   __napiInstance.exports['__napi_register__IsolatedDeclarationsOptions_struct_1']?.()
   __napiInstance.exports['__napi_register__isolated_declaration_2']?.()
@@ -152,8 +152,8 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__BindingOutputs_impl_146']?.()
   __napiInstance.exports['__napi_register__JsChangedOutputs_struct_147']?.()
   __napiInstance.exports['__napi_register__BindingError_struct_148']?.()
-  __napiInstance.exports['__napi_register__PreRenderedChunk_struct_149']?.()
-  __napiInstance.exports['__napi_register__RenderedChunk_struct_150']?.()
+  __napiInstance.exports['__napi_register__BindingPreRenderedChunk_struct_149']?.()
+  __napiInstance.exports['__napi_register__BindingRenderedChunk_struct_150']?.()
   __napiInstance.exports['__napi_register__BindingRenderedModule_struct_151']?.()
   __napiInstance.exports['__napi_register__BindingRenderedModule_impl_153']?.()
   __napiInstance.exports['__napi_register__AliasItem_struct_154']?.()

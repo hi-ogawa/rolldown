@@ -8,7 +8,7 @@ use super::binding_rendered_module::BindingRenderedModule;
 
 #[napi_derive::napi(object)]
 #[derive(Default, Debug)]
-pub struct RenderedChunk {
+pub struct BindingRenderedChunk {
   // PreRenderedChunk
   pub name: String,
   pub is_entry: bool,
@@ -23,7 +23,7 @@ pub struct RenderedChunk {
   pub dynamic_imports: Vec<String>,
 }
 
-impl From<rolldown_common::RollupRenderedChunk> for RenderedChunk {
+impl From<rolldown_common::RollupRenderedChunk> for BindingRenderedChunk {
   fn from(value: rolldown_common::RollupRenderedChunk) -> Self {
     Self {
       name: value.name.to_string(),

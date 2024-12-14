@@ -1,9 +1,9 @@
-import { RenderedChunk } from '../binding'
+import { BindingRenderedChunk } from '../binding'
 import { RolldownRenderedChunk } from '../types/rolldown-output'
 import { transformToRenderedModule } from './transform-rendered-module'
 
 export function transformRenderedChunk(
-  chunk: RenderedChunk,
+  chunk: BindingRenderedChunk,
 ): RolldownRenderedChunk {
   return {
     ...chunk,
@@ -14,7 +14,7 @@ export function transformRenderedChunk(
 }
 
 export function transformChunkModules(
-  modules: RenderedChunk['modules'],
+  modules: BindingRenderedChunk['modules'],
 ): RolldownRenderedChunk['modules'] {
   const result: RolldownRenderedChunk['modules'] = {}
   for (const [id, mod] of Object.entries(modules)) {

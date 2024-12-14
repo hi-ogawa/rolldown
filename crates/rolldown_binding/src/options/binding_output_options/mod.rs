@@ -2,17 +2,17 @@ mod types;
 
 use crate::types::js_callback::{JsCallback, MaybeAsyncJsCallback};
 
-use super::super::types::binding_rendered_chunk::RenderedChunk;
+use super::super::types::binding_rendered_chunk::BindingRenderedChunk;
 use super::plugin::BindingPluginOrParallelJsPluginPlaceholder;
-use crate::types::binding_pre_rendered_chunk::PreRenderedChunk;
+use crate::types::binding_pre_rendered_chunk::BindingPreRenderedChunk;
 use derive_more::Debug;
 use napi::Either;
 use napi_derive::napi;
 use rustc_hash::FxHashMap;
 use types::binding_advanced_chunks_options::BindingAdvancedChunksOptions;
 
-pub type AddonOutputOption = MaybeAsyncJsCallback<RenderedChunk, Option<String>>;
-pub type ChunkFileNamesOutputOption = Either<String, JsCallback<PreRenderedChunk, String>>;
+pub type AddonOutputOption = MaybeAsyncJsCallback<BindingRenderedChunk, Option<String>>;
+pub type ChunkFileNamesOutputOption = Either<String, JsCallback<BindingPreRenderedChunk, String>>;
 pub type GlobalsOutputOption = Either<FxHashMap<String, String>, JsCallback<String, String>>;
 
 #[napi(object, object_to_js = false)]
@@ -25,22 +25,22 @@ pub struct BindingOutputOptions {
   pub asset_file_names: Option<String>,
 
   #[debug(skip)]
-  #[napi(ts_type = "string | ((chunk: PreRenderedChunk) => string)")]
+  #[napi(ts_type = "string | ((chunk: BindingPreRenderedChunk) => string)")]
   pub entry_file_names: Option<ChunkFileNamesOutputOption>,
   #[debug(skip)]
-  #[napi(ts_type = "string | ((chunk: PreRenderedChunk) => string)")]
+  #[napi(ts_type = "string | ((chunk: BindingPreRenderedChunk) => string)")]
   pub chunk_file_names: Option<ChunkFileNamesOutputOption>,
   #[debug(skip)]
-  #[napi(ts_type = "string | ((chunk: PreRenderedChunk) => string)")]
+  #[napi(ts_type = "string | ((chunk: BindingPreRenderedChunk) => string)")]
   pub css_entry_file_names: Option<ChunkFileNamesOutputOption>,
   #[debug(skip)]
-  #[napi(ts_type = "string | ((chunk: PreRenderedChunk) => string)")]
+  #[napi(ts_type = "string | ((chunk: BindingPreRenderedChunk) => string)")]
   pub css_chunk_file_names: Option<ChunkFileNamesOutputOption>,
 
   // amd: NormalizedAmdOptions;
   // assetFileNames: string | ((chunkInfo: PreRenderedAsset) => string);
   #[debug(skip)]
-  #[napi(ts_type = "(chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>")]
+  #[napi(ts_type = "(chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>")]
   pub banner: Option<AddonOutputOption>,
   // chunkFileNames: string | ((chunkInfo: PreRenderedChunk) => string);
   // compact: boolean;
@@ -55,7 +55,7 @@ pub struct BindingOutputOptions {
   pub external_live_bindings: Option<bool>,
   // footer: () => string | Promise<string>;
   #[debug(skip)]
-  #[napi(ts_type = "(chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>")]
+  #[napi(ts_type = "(chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>")]
   pub footer: Option<AddonOutputOption>,
   #[napi(ts_type = "'es' | 'cjs' | 'iife' | 'umd' | 'app'")]
   pub format: Option<String>,
@@ -71,14 +71,14 @@ pub struct BindingOutputOptions {
   pub inline_dynamic_imports: Option<bool>,
   // interop: GetInterop;
   #[debug(skip)]
-  #[napi(ts_type = "(chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>")]
+  #[napi(ts_type = "(chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>")]
   pub intro: Option<AddonOutputOption>,
   // manualChunks: ManualChunksOption;
   // minifyInternalExports: boolean;
   // namespaceToStringTag: boolean;
   // noConflict: boolean;
   #[debug(skip)]
-  #[napi(ts_type = "(chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>")]
+  #[napi(ts_type = "(chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>")]
   pub outro: Option<AddonOutputOption>,
   // paths: OptionsPaths;
   #[napi(ts_type = "(BindingBuiltinPlugin | BindingPluginOptions | undefined)[]")]

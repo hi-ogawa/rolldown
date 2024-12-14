@@ -2,6 +2,7 @@ import {
   RolldownOutput,
   RolldownOutputAsset,
   RolldownOutputChunk,
+  RolldownPreRenderedChunk,
   RolldownRenderedChunk,
   SourceMap,
 } from './types/rolldown-output'
@@ -47,7 +48,6 @@ import {
   InternalModuleFormat,
   NormalizedOutputOptions,
 } from './options/normalized-output-options'
-import { PreRenderedChunk } from './binding'
 import { PartialNull } from './types/utils'
 import { NormalizedInputOptions } from './options/normalized-input-options'
 import { ModuleInfo } from './types/module-info'
@@ -88,7 +88,6 @@ export type {
   PluginContext,
   TransformPluginContext,
   ObjectHook,
-  PreRenderedChunk,
   SourceMap,
   SourceDescription,
   PartialNull,
@@ -121,6 +120,7 @@ export type {
   RolldownOutputChunk as OutputChunk,
   RolldownOutputAsset as OutputAsset,
   RolldownRenderedChunk as RenderedChunk,
+  RolldownPreRenderedChunk as PreRenderedChunk,
   RolldownWatcher as RollupWatcher,
 }
 export type { RollupError, RollupLog, LoggingFunction } from './rollup'

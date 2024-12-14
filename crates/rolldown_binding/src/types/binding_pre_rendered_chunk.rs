@@ -1,6 +1,6 @@
 #[napi_derive::napi(object)]
 #[derive(Default, Debug)]
-pub struct PreRenderedChunk {
+pub struct BindingPreRenderedChunk {
   pub name: String,
   pub is_entry: bool,
   pub is_dynamic_entry: bool,
@@ -9,7 +9,7 @@ pub struct PreRenderedChunk {
   pub exports: Vec<String>,
 }
 
-impl From<rolldown_common::RollupPreRenderedChunk> for PreRenderedChunk {
+impl From<rolldown_common::RollupPreRenderedChunk> for BindingPreRenderedChunk {
   fn from(value: rolldown_common::RollupPreRenderedChunk) -> Self {
     Self {
       name: value.name.to_string(),

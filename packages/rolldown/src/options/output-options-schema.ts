@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import * as zodExt from '../utils/zod-ext'
 import { colors } from '../cli/colors'
-import type { PreRenderedChunk } from '../binding'
+import type { BindingPreRenderedChunk } from '../binding'
 import type {
   SourcemapIgnoreListOption,
   SourcemapPathTransformOption,
@@ -37,7 +37,7 @@ const addonFunctionSchema = z
 
 const chunkFileNamesFunctionSchema = z
   .function()
-  .args(zodExt.phantom<PreRenderedChunk>())
+  .args(zodExt.phantom<BindingPreRenderedChunk>())
   .returns(z.string()) satisfies z.ZodType<ChunkFileNamesFunction>
 
 const GlobalsFunctionSchema = z

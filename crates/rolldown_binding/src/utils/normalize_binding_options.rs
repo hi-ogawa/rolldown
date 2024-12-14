@@ -6,7 +6,7 @@ use crate::{
 #[cfg_attr(target_family = "wasm", allow(unused))]
 use crate::{
   options::plugin::JsPlugin,
-  types::{binding_rendered_chunk::RenderedChunk, js_callback::MaybeAsyncJsCallbackExt},
+  types::{binding_rendered_chunk::BindingRenderedChunk, js_callback::MaybeAsyncJsCallbackExt},
 };
 use napi::bindgen_prelude::Either;
 use rolldown::{
@@ -38,7 +38,7 @@ fn normalize_addon_option(
       let fn_js = Arc::clone(&value);
       let chunk = chunk.clone();
       Box::pin(async move {
-        fn_js.await_call(RenderedChunk::from(chunk)).await.map_err(anyhow::Error::from)
+        fn_js.await_call(BindingRenderedChunk::from(chunk)).await.map_err(anyhow::Error::from)
       })
     }))
   })

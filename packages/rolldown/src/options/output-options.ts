@@ -1,5 +1,5 @@
 import type { StringOrRegExp } from '../types/utils'
-import type { PreRenderedChunk } from '../binding'
+import type { BindingPreRenderedChunk } from '../binding'
 import {
   SourcemapIgnoreListOption,
   SourcemapPathTransformOption,
@@ -21,7 +21,9 @@ export type AddonFunction = (
   chunk: RolldownRenderedChunk,
 ) => string | Promise<string>
 
-export type ChunkFileNamesFunction = (chunkInfo: PreRenderedChunk) => string
+export type ChunkFileNamesFunction = (
+  chunkInfo: BindingPreRenderedChunk,
+) => string
 
 export type GlobalsFunction = (name: string) => string
 

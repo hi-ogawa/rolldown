@@ -24,6 +24,6 @@ export function unsupported(info: string): () => never {
     throw new Error(`UNSUPPORTED: ${info}`)
   }
 }
-export type UnsupportedFnRet = ReturnType<typeof unsupported>
+export type UnsupportedFnRet = () => never
 
 export function noop(..._args: any[]): void {}

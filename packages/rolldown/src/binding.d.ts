@@ -403,24 +403,24 @@ export interface BindingNotifyOption {
 export interface BindingOutputOptions {
   name?: string
   assetFileNames?: string
-  entryFileNames?: string | ((chunk: PreRenderedChunk) => string)
-  chunkFileNames?: string | ((chunk: PreRenderedChunk) => string)
-  cssEntryFileNames?: string | ((chunk: PreRenderedChunk) => string)
-  cssChunkFileNames?: string | ((chunk: PreRenderedChunk) => string)
-  banner?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
+  entryFileNames?: string | ((chunk: BindingPreRenderedChunk) => string)
+  chunkFileNames?: string | ((chunk: BindingPreRenderedChunk) => string)
+  cssEntryFileNames?: string | ((chunk: BindingPreRenderedChunk) => string)
+  cssChunkFileNames?: string | ((chunk: BindingPreRenderedChunk) => string)
+  banner?: (chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>
   dir?: string
   file?: string
   esModule?: boolean | 'if-default-prop'
   exports?: 'default' | 'named' | 'none' | 'auto'
   extend?: boolean
   externalLiveBindings?: boolean
-  footer?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
+  footer?: (chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>
   format?: 'es' | 'cjs' | 'iife' | 'umd' | 'app'
   globals?: Record<string, string> | ((name: string) => string)
   hashCharacters?: 'base64' | 'base36' | 'hex'
   inlineDynamicImports?: boolean
-  intro?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
-  outro?: (chunk: RenderedChunk) => MaybePromise<VoidNullable<string>>
+  intro?: (chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>
+  outro?: (chunk: BindingRenderedChunk) => MaybePromise<VoidNullable<string>>
   plugins: (BindingBuiltinPlugin | BindingPluginOptions | undefined)[]
   sourcemap?: 'file' | 'inline' | 'hidden'
   sourcemapIgnoreList?: (source: string, sourcemapPath: string) => boolean
@@ -466,9 +466,9 @@ export interface BindingPluginOptions {
   moduleParsedMeta?: BindingPluginHookMeta
   buildEnd?: (ctx: BindingPluginContext, error?: (Error | BindingError)[]) => MaybePromise<VoidNullable>
   buildEndMeta?: BindingPluginHookMeta
-  renderChunk?: (ctx: BindingPluginContext, code: string, chunk: RenderedChunk, opts: BindingNormalizedOptions) => MaybePromise<VoidNullable<BindingHookRenderChunkOutput>>
+  renderChunk?: (ctx: BindingPluginContext, code: string, chunk: BindingRenderedChunk, opts: BindingNormalizedOptions) => MaybePromise<VoidNullable<BindingHookRenderChunkOutput>>
   renderChunkMeta?: BindingPluginHookMeta
-  augmentChunkHash?: (ctx: BindingPluginContext, chunk: RenderedChunk) => MaybePromise<void | string>
+  augmentChunkHash?: (ctx: BindingPluginContext, chunk: BindingRenderedChunk) => MaybePromise<void | string>
   augmentChunkHashMeta?: BindingPluginHookMeta
   renderStart?: (ctx: BindingPluginContext, opts: BindingNormalizedOptions) => void
   renderStartMeta?: BindingPluginHookMeta
@@ -484,13 +484,13 @@ export interface BindingPluginOptions {
   watchChangeMeta?: BindingPluginHookMeta
   closeWatcher?: (ctx: BindingPluginContext) => MaybePromise<VoidNullable>
   closeWatcherMeta?: BindingPluginHookMeta
-  banner?: (ctx: BindingPluginContext, chunk: RenderedChunk) => void
+  banner?: (ctx: BindingPluginContext, chunk: BindingRenderedChunk) => void
   bannerMeta?: BindingPluginHookMeta
-  footer?: (ctx: BindingPluginContext, chunk: RenderedChunk) => void
+  footer?: (ctx: BindingPluginContext, chunk: BindingRenderedChunk) => void
   footerMeta?: BindingPluginHookMeta
-  intro?: (ctx: BindingPluginContext, chunk: RenderedChunk) => void
+  intro?: (ctx: BindingPluginContext, chunk: BindingRenderedChunk) => void
   introMeta?: BindingPluginHookMeta
-  outro?: (ctx: BindingPluginContext, chunk: RenderedChunk) => void
+  outro?: (ctx: BindingPluginContext, chunk: BindingRenderedChunk) => void
   outroMeta?: BindingPluginHookMeta
 }
 
@@ -502,6 +502,28 @@ export declare enum BindingPluginOrder {
 export interface BindingPluginWithIndex {
   index: number
   plugin: BindingPluginOptions
+}
+
+export interface BindingPreRenderedChunk {
+  name: string
+  isEntry: boolean
+  isDynamicEntry: boolean
+  facadeModuleId?: string
+  moduleIds: Array<string>
+  exports: Array<string>
+}
+
+export interface BindingRenderedChunk {
+  name: string
+  isEntry: boolean
+  isDynamicEntry: boolean
+  facadeModuleId?: string
+  moduleIds: Array<string>
+  exports: Array<string>
+  fileName: string
+  modules: Record<string, BindingRenderedModule>
+  imports: Array<string>
+  dynamicImports: Array<string>
 }
 
 export interface BindingReplacePluginConfig {
@@ -793,15 +815,6 @@ export interface OxcError {
   helpMessage?: string
 }
 
-export interface PreRenderedChunk {
-  name: string
-  isEntry: boolean
-  isDynamicEntry: boolean
-  facadeModuleId?: string
-  moduleIds: Array<string>
-  exports: Array<string>
-}
-
 export interface ReactRefreshOptions {
   /**
    * Specify the identifier of the refresh registration variable.
@@ -819,19 +832,6 @@ export interface ReactRefreshOptions {
 }
 
 export declare function registerPlugins(id: number, plugins: Array<BindingPluginWithIndex>): void
-
-export interface RenderedChunk {
-  name: string
-  isEntry: boolean
-  isDynamicEntry: boolean
-  facadeModuleId?: string
-  moduleIds: Array<string>
-  exports: Array<string>
-  fileName: string
-  modules: Record<string, BindingRenderedModule>
-  imports: Array<string>
-  dynamicImports: Array<string>
-}
 
 export type Severity =  'Error'|
 'Warning'|
