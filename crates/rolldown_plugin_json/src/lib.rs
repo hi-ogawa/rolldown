@@ -48,8 +48,8 @@ impl Plugin for JsonPlugin {
             code += &format!("export const {key} = {};\n", &serialize_value(value)?);
             default_object_code += &format!("  {key},\n");
           } else {
-            // TODO: escape key
-            default_object_code += &format!("  \"{key}\": {},\n", &serialize_value(value)?);
+            default_object_code +=
+              &format!("  {}: {},\n", serde_json::to_string(key)?, &serialize_value(value)?);
           }
         }
         default_object_code += "}";
@@ -164,8 +164,9 @@ fn to_esm(data: &Value, named_exports: bool) -> String {
       default_export_rows.push(Cow::Borrowed(key));
       named_export_code += &format!("export const {key} = {value};\n");
     } else {
-      // TODO: escape key
       default_export_rows.push(Cow::Owned(format!("\"{key}\": {value}",)));
+      // default_export_rows
+      //   .push(Cow::Owned(format!("{}: {value}", serde_json::to_string(key).unwrap())));
     }
   }
   let default_export_code: String =
@@ -223,6 +224,18 @@ mod test {
     let data = serde_json::json!({"foo": "foo", "bar": "bar"});
     assert_eq!(
       "export const foo = \"foo\";\nexport const bar = \"bar\";\nexport default {\nfoo,\nbar\n};\n",
+      to_esm(&data, true)
+    );
+  }
+
+  #[test]
+  fn to_esm_escape_key() {
+    let data = serde_json::json!({"\"\t\r\n\\": true});
+    assert_eq!(
+      r#"export default {
+"\"\t\r\n\\": true
+};
+"#,
       to_esm(&data, true)
     );
   }
